@@ -1,0 +1,32 @@
+name: 📚 Documentação
+description: Melhoria ou correção de documentação
+title: "[DOCS] "
+labels: ["documentation"]
+
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Tipo
+      options:
+        - Correção (erro, link quebrado, informação desatualizada)
+        - Melhoria (clareza, exemplos, organização)
+        - Nova documentação
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: O que
+      placeholder: Descreva brevemente
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Onde
+      placeholder: docs/01-INSTALACAO.md, seção X
+    validations:
+      required: true

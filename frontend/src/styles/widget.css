@@ -1,0 +1,48 @@
+/**
+ * Estilos específicos do widget (usado dentro do Shadow DOM).
+ * NÃO importa Tailwind aqui — tudo é CSS puro para isolar.
+ */
+
+:host {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2147483647; /* máximo z-index possível */
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+  line-height: 1.5;
+}
+
+:host([position='bottom-left']) {
+  right: auto;
+  left: 20px;
+}
+
+:host([position='bottom-center']) {
+  right: 50%;
+  transform: translateX(50%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

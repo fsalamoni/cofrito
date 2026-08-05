@@ -1,0 +1,138 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    //  Helper functions
+    // ============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function hasAcceptedConsent() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.consent != null;
+    }
+
+    function isValidUserUpdate() {
+      // Campos permitidos para update do próprio usuário
+      let allowed = ['displayName', 'preferences', 'lastSeen'];
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(allowed);
+    }
+
+    // ============================================================
+    //  Users (próprio)
+    // ============================================================
+
+    match /users/{uid} {
+      allow read, delete: if isOwner(uid);
+
+      allow create: if isOwner(uid) &&
+        request.resource.data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'consent']) &&
+        request.resource.data.email is string &&
+        request.resource.data.displayName is string &&
+        request.resource.data.consent != null;
+
+      allow update: if isOwner(uid) && isValidUserUpdate();
+
+      // Profile
+      match /profile/main {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Conversations
+      match /conversations/{conversationId} {
+        allow read, write: if isOwner(uid);
+
+        match /messages/{messageId} {
+          allow read, write: if isOwner(uid);
+        }
+      }
+
+      // Feedback
+      match /feedback/{feedbackId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ============================================================
+    //  Corpus (público para leitura autenticada)
+    // ============================================================
+
+    match /corpus/{document=**} {
+      allow read: if hasAcceptedConsent();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    //  Consultas formais
+    // ============================================================
+
+    match /consultas-formais/{consultaId} {
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.keys().hasAll([
+          'protocol', 'userId', 'assunto', 'questaoObjetiva',
+          'createdAt', 'status'
+        ]) &&
+        request.resource.data.questaoObjetiva is string &&
+        request.resource.data.questaoObjetiva.size() >= 20 &&
+        request.resource.data.assunto is string &&
+        request.resource.data.assunto.size() >= 5;
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================================
+    //  Auditoria (somente escrita pelo backend)
+    // ============================================================
+
+    match /audit/{auditId} {
+      allow read: if isAdmin();
+      allow write: if false; // só via Admin SDK / Cloud Functions
+    }
+
+    // ============================================================
+    //  Admins
+    // ============================================================
+
+    match /admins/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false; // somente via admin script
+    }
+
+    // ============================================================
+    //  Feature flags
+    // ============================================================
+
+    match /feature-flags/{flagKey} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    //  System (agregações, métricas)
+    // ============================================================
+
+    match /system/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false; // só via Admin SDK
+    }
+  }
+}

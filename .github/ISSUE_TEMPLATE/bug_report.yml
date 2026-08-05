@@ -1,0 +1,80 @@
+name: 🐛 Bug Report
+description: Reporte um bug no Cofrito
+title: "[BUG] "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por reportar um bug! Por favor, preencha as informações abaixo.
+
+  - type: input
+    id: url
+    attributes:
+      label: URL onde o bug ocorreu
+      placeholder: https://cofrito.caocipp.mp.rs.gov.br/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Descrição do bug
+      placeholder: O que aconteceu?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para reproduzir
+      placeholder: |
+        1. Acessar ...
+        2. Clicar em ...
+        3. Digitar ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+      placeholder: O que você esperava que acontecesse?
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamento atual
+      placeholder: O que realmente aconteceu?
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidade
+      options:
+        - Crítico (sistema indisponível, perda de dados)
+        - Alto (funcionalidade principal quebrada)
+        - Médio (funcionalidade secundária quebrada, mas tem workaround)
+        - Baixo (cosmético, melhoramento)
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Navegador e versão
+      placeholder: Chrome 124
+
+  - type: input
+    id: device
+    attributes:
+      label: Dispositivo
+      placeholder: Desktop, MacBook Pro 14"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      placeholder: Cole logs relevantes ou anexe screenshots

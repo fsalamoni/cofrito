@@ -1,0 +1,39 @@
+name: ✨ Feature Request
+description: Sugira uma nova funcionalidade
+title: "[FEAT] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de sugerir, verifique se já não existe uma issue similar.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qual problema isso resolve?
+      placeholder: Estou sempre frustrado quando...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solução proposta
+      placeholder: Eu gostaria que o Cofrito...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+      placeholder: Considerei também...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Contexto adicional
+      placeholder: Screenshots, mockups, links...

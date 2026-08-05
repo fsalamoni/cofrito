@@ -1,0 +1,21 @@
+# CODEOWNERS — quem revisa o quê
+# Documentação: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: ninguém (configurar nas regras de proteção de branch)
+* @seu-usuario-github
+
+# Frontend
+/frontend/ @seu-usuario-github
+/frontend/src/components/AgentWidget/ @seu-usuario-github
+
+# Backend (Cloud Functions)
+/functions/ @seu-usuario-github
+
+# Segurança e LGPD (mudanças requerem 2 aprovações)
+/firestore.rules @seu-usuario-github
+/storage.rules @seu-usuario-github
+/functions/src/middleware/ @seu-usuario-github
+/docs/05-LGPD-SEGURANCA.md @seu-usuario-github
+
+# Documentação
+/docs/ @seu-usuario-github

@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  #  Backend (Cloud Functions)
+  # ============================================================
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '../.nvmrc'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npm test
+
+      - name: Coverage
+        if: github.event_name == 'pull_request'
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Verificar tamanho do bundle
+        run: |
+          SIZE=$(stat -c %s lib/index.js 2>/dev/null || stat -f %z lib/index.js)
+          echo "Bundle size: ${SIZE} bytes"
+          if [ "$SIZE" -gt 2097152 ]; then
+            echo "::warning::Bundle > 2MB"
+          fi
+
+  # ============================================================
+  #  Frontend
+  # ============================================================
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '../.nvmrc'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: npm run build
+
+      - name: Verificar tamanho do bundle
+        run: |
+          GZIP_SIZE=$(stat -c %s dist/assets/*.js 2>/dev/null | awk '{ sum += $1 } END { print sum }')
+          echo "JS bundle size (sum): ${GZIP_SIZE} bytes"
+          if [ "$GZIP_SIZE" -gt 524288 ]; then
+            echo "::warning::Bundle > 500KB (gzip)"
+          fi
+
+      - name: Lighthouse CI (smoke)
+        if: github.event_name == 'pull_request'
+        uses: treosh/lighthouse-ci-action@v11
+        with:
+          configPath: .lighthouserc.json
+          uploadArtifacts: true
+
+  # ============================================================
+  #  Security audit
+  # ============================================================
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ============================================================
+  #  Compor resultados
+  # ============================================================
+  all-jobs-pass:
+    name: All jobs
+    needs: [backend, frontend, security]
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    steps:
+      - name: Resultado
+        run: |
+          if [ "${{ needs.backend.result }}" != "success" ] || \
+             [ "${{ needs.frontend.result }}" != "success" ] || \
+             [ "${{ needs.security.result }}" != "success" ]; then
+            echo "Algum job falhou"
+            exit 1
+          fi
+          echo "Todos os jobs passaram ✓"

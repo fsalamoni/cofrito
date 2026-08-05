@@ -1,0 +1,46 @@
+{
+  "name": "agente-caocipp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agente conversacional do CAOCIPP — MP/RS",
+  "workspaces": [
+    "frontend",
+    "functions"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace=frontend run dev",
+    "dev:functions": "npm --workspace=functions run serve",
+    "dev:emulators": "firebase emulators:start",
+    "build": "npm --workspace=frontend run build && npm --workspace=functions run build",
+    "lint": "npm --workspace=frontend run lint && npm --workspace=functions run lint",
+    "typecheck": "npm --workspace=frontend run typecheck && npm --workspace=functions run typecheck",
+    "test": "npm --workspace=frontend run test && npm --workspace=functions run test",
+    "test:watch": "npm --workspace=frontend run test:watch",
+    "test:coverage": "npm --workspace=frontend run test:coverage && npm --workspace=functions run test:coverage",
+    "ingest": "npm --workspace=functions run ingest",
+    "validate:corpus": "npm --workspace=functions run validate:corpus",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:dev": "npm run build && firebase use dev && firebase deploy",
+    "deploy:staging": "npm run build && firebase use staging && firebase deploy",
+    "deploy:prod": "npm run build && firebase use prod && firebase deploy",
+    "prepare": "husky install || true"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.2",
+    "prettier": "^3.3.2"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "license": "MIT"
+}
