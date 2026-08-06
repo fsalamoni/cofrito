@@ -33,7 +33,7 @@ export async function validateCorpus(dataDir?: string): Promise<{ ok: boolean; e
     const issues: string[] = []
 
     if (!data.title) issues.push('title ausente')
-    if (!data.type || !VALID_TYPES.includes(data.type as any)) {
+    if (!data.type || !VALID_TYPES.includes(data.type as (typeof VALID_TYPES)[number])) {
       issues.push(`type inválido: "${data.type}"`)
     }
     if (!data.area) issues.push('area ausente (recomendado)')

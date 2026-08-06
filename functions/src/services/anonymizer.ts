@@ -16,7 +16,7 @@ const PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   // Número de processo CNJ
   { pattern: /\b\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}\b/g, label: 'processo' },
   // OAB
-  { pattern: /\bOAB[\/\s]?[A-Z]{2}\s?\d{1,6}\b/gi, label: 'oab' },
+  { pattern: /\bOAB[/\\s]?[A-Z]{2}\s?\d{1,6}\b/gi, label: 'oab' },
   // Telefone
   { pattern: /\b\(?\d{2}\)?\s?9?\d{4}-?\d{4}\b/g, label: 'telefone' },
 ]

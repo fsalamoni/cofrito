@@ -82,12 +82,14 @@ export const chat = onCall(
       }
 
       // 6. LLM
+      // Integração LLM deliberadamente fora de escopo neste deploy (decisão 2026-08).
+      // apiKey é string vazia → services/llm.ts retorna mensagem amigável.
       const { content, sources, tokensUsed } = await generateAnswer({
         userMessage: sanitizedText,
         history,
         chunks,
         profile,
-        apiKey: process.env.GEMINI_API_KEY ?? '',
+        apiKey: '',
       })
 
       // 7. Persistência

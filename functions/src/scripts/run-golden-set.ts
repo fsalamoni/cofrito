@@ -8,7 +8,7 @@
  *
  * Requer:
  *   - Emulador rodando OU Functions deployadas
- *   - GEMINI_API_KEY definida
+ *   - LLM_API_KEY definida
  */
 
 import * as dotenv from 'dotenv'
@@ -26,6 +26,23 @@ interface GoldenQuestion {
   expectedCitation?: string
   expectedKeywords?: string[]
   minRelevance?: number
+}
+
+interface ChatSource {
+  docId: string
+  chunkId?: string
+  section?: string
+  title?: string
+  relevance?: number
+}
+
+interface ChatAnswer {
+  reply?: string
+  inScope?: boolean
+  intent?: string
+  sources?: ChatSource[]
+  guardrailTriggered?: string
+  usage?: { prompt: number; completion: number; total: number }
 }
 
 interface GoldenSet {
@@ -144,10 +161,10 @@ async function askQuestion(baseUrl: string, message: string) {
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${await res.text()}`)
   }
-  return res.json() as Promise<any>
+  return res.json() as Promise<ChatAnswer>
 }
 
-function evaluate(q: GoldenQuestion, answer: any, durationMs: number): Result {
+function evaluate(q: GoldenQuestion, answer: ChatAnswer, durationMs: number): Result {
   const errors: string[] = []
 
   // 1. Teve resposta?
@@ -190,7 +207,7 @@ function evaluate(q: GoldenQuestion, answer: any, durationMs: number): Result {
   // 3. Tem keywords esperados?
   let hasKeywords: boolean | null = null
   if (q.expectedKeywords && q.expectedKeywords.length > 0 && !q.shouldRefuse) {
-    const lower = answer.reply.toLowerCase()
+    const lower = (answer.reply ?? '').toLowerCase()
     hasKeywords = q.expectedKeywords.some((k) => lower.includes(k.toLowerCase()))
     if (!hasKeywords) errors.push(`nenhuma das keywords apareceu: ${q.expectedKeywords.join(', ')}`)
   }
@@ -198,17 +215,17 @@ function evaluate(q: GoldenQuestion, answer: any, durationMs: number): Result {
   // 4. Citou a fonte esperada?
   let hasCitation: boolean | null = null
   if (q.expectedCitation && !q.shouldRefuse) {
-    hasCitation = (answer.sources || []).some((s: any) => s.docId === q.expectedCitation)
+    hasCitation = (answer.sources || []).some((s: ChatSource) => s.docId === q.expectedCitation)
     if (!hasCitation) {
       errors.push(
-        `não citou ${q.expectedCitation} (citou: ${(answer.sources || []).map((s: any) => s.docId).join(', ') || 'nenhuma'})`,
+        `não citou ${q.expectedCitation} (citou: ${(answer.sources || []).map((s: ChatSource) => s.docId).join(', ') || 'nenhuma'})`,
       )
     }
   }
 
   // 5. Tem relevância mínima?
   if (q.minRelevance && answer.sources && answer.sources.length > 0) {
-    const top = answer.sources[0].relevance
+    const top = answer.sources[0].relevance ?? 0
     if (top < q.minRelevance) {
       errors.push(`relevância ${top.toFixed(2)} < ${q.minRelevance}`)
     }
@@ -222,10 +239,10 @@ function evaluate(q: GoldenQuestion, answer: any, durationMs: number): Result {
     durationMs,
     checks: { refusedAsExpected, hasKeywords, hasCitation, hasReply },
     answer: {
-      reply: answer.reply,
-      inScope: answer.inScope,
-      intent: answer.intent,
-      sources: answer.sources || [],
+      reply: answer.reply ?? '',
+      inScope: answer.inScope ?? false,
+      intent: answer.intent ?? '',
+      sources: (answer.sources || []).map((s) => ({ docId: s.docId, relevance: s.relevance ?? 0 })),
       guardrailTriggered: answer.guardrailTriggered,
     },
     tokens: answer.usage || { prompt: 0, completion: 0, total: 0 },

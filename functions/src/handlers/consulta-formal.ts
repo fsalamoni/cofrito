@@ -60,17 +60,18 @@ export const openConsultaFormal = onCall(
     await db.collection('consultas-formais').doc(protocol).set(consultaData)
 
     // Notifica o CAO
+    // Resend deliberadamente fora de escopo neste deploy (decisão 2026-08).
     try {
-      const apiKey = process.env.RESEND_API_KEY
+      const apiKey = ''
       if (apiKey) {
         await sendEmail({
           apiKey,
-          to: process.env.CAO_EMAIL || 'caocivel@mprs.mp.br',
+          to: 'caocivel@mprs.mp.br',
           subject: `[${protocol}] Nova consulta formal via agente`,
           body: formatConsultaEmail(consultaData),
         })
       } else {
-        logger.warn('consultaFormal.email.skipped', { protocol, reason: 'RESEND_API_KEY não configurada' })
+        logger.warn('consultaFormal.email.skipped', { protocol, reason: 'email desabilitado neste deploy' })
       }
     } catch (err) {
       logger.error('consultaFormal.email.error', { protocol, err })

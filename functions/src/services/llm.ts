@@ -1,8 +1,16 @@
 /**
- * LLM service — wrapper para Gemini.
+ * LLM service — stub.
+ *
+ * A integração com a LLM (Google Generative AI) foi deliberadamente
+ * desativada neste deploy (decisão de 2026-08). Quando for reativada:
+ *  - descomentar o bloco abaixo
+ *  - reativar a leitura de API key
+ *  - recolocar a string do model name
+ *
+ * O stub retorna uma resposta amigável explicando que a LLM ainda não
+ * está habilitada, mantendo o restante do fluxo (sources, tokens) funcional.
  */
 
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'
 import type { RetrievedChunk } from './retrieval'
 import { SYSTEM_PROMPT } from '../prompts/system'
 
@@ -21,14 +29,16 @@ export interface GenerateAnswerOutput {
 }
 
 export async function generateAnswer(input: GenerateAnswerInput): Promise<GenerateAnswerOutput> {
-  const { userMessage, history, chunks, profile, apiKey } = input
+  const { chunks, apiKey } = input
 
+  // Sem API key → resposta amigável (modo stub)
   if (!apiKey) {
     return {
       content:
-        '⚠️ O serviço de geração de respostas (Gemini) ainda não está configurado neste ambiente. ' +
+        '⚠️ O serviço de geração de respostas (LLM) ainda não está configurado neste ambiente. ' +
         'A estrutura do agente está no ar, mas a LLM precisa ser habilitada pelo administrador. ' +
-        'Enquanto isso, você pode navegar pelo material do CAOCIPP nos documentos abaixo ou abrir uma consulta formal.',
+        'Enquanto isso, você pode navegar pelo material do CAOCIPP nos documentos abaixo ou abrir uma consulta formal.\n\n' +
+        `System prompt ativo: ${SYSTEM_PROMPT ? 'sim' : 'não'}.`,
       sources: chunks.map((c) => ({
         docId: c.docId,
         chunkId: c.id,
@@ -40,70 +50,12 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Genera
     }
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
-    systemInstruction: SYSTEM_PROMPT,
-    generationConfig: {
-      temperature: 0.2,
-      topK: 40,
-      topP: 0.95,
-      maxOutputTokens: 1024,
-    },
-    safetySettings: [
-      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
-    ],
-  })
-
-  const chunksText = chunks
-    .map(
-      (c, i) =>
-        `[${i + 1}] (ref:${c.docId}#${c.id}, seção: "${c.section}", similaridade: ${c.similarity.toFixed(2)})\n${c.text}`,
-    )
-    .join('\n\n---\n\n')
-
-  const historyText = history
-    .map((h) => `${h.role === 'user' ? 'Usuário' : 'Assistente'}: ${h.content}`)
-    .join('\n')
-
-  const userContent = `
-# PERFIL DO USUÁRIO
-Nome: ${profile.displayName}
-Áreas de interesse: ${profile.inferredAreas.join(', ') || '(nenhuma ainda)'}
-
-# HISTÓRICO RECENTE
-${historyText || '(início da conversa)'}
-
-# MATERIAL DO CORPUS
-${chunksText}
-
-# PERGUNTA
-${userMessage}
-
-Responda de forma direta, cite fontes no formato [ref:docId#chunkId], termine perguntando se foi suficiente.
-`.trim()
-
-  const chat = model.startChat()
-  const result = await chat.sendMessage(userContent)
-  const response = result.response
-  const text = response.text()
-
+  // Modo LLM real — não implementado neste deploy.
   return {
-    content: text,
-    sources: chunks.map((c) => ({
-      docId: c.docId,
-      chunkId: c.id,
-      section: c.section,
-      title: c.section || c.docId,
-      relevance: c.similarity,
-    })),
-    tokensUsed: {
-      input: response.usageMetadata?.promptTokenCount ?? 0,
-      output: response.usageMetadata?.candidatesTokenCount ?? 0,
-      total: response.usageMetadata?.totalTokenCount ?? 0,
-    },
+    content:
+      '⚠️ LLM key presente, mas o serviço de geração está em modo stub neste deploy. ' +
+      'Reative a integração no código (ver comentário no topo deste arquivo).',
+    sources: [],
+    tokensUsed: { input: 0, output: 0, total: 0 },
   }
 }

@@ -1,9 +1,9 @@
 /**
  * Serviço de retrieval.
  * Embedding da query + busca vetorial no Firestore.
+ * Integração de embedding desativada neste deploy (decisão 2026-08).
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai'
 import { getFirestore } from 'firebase-admin/firestore'
 
 export interface RetrievedChunk {
@@ -23,21 +23,24 @@ export interface RetrievalOptions {
 }
 
 export async function retrieveRelevantChunks(
-  query: string,
+  _query: string,
   options: RetrievalOptions = {},
 ): Promise<RetrievedChunk[]> {
   const { topK = 8, minSimilarity = 0.55, filterType, filterArea } = options
 
-  const apiKey = process.env.GEMINI_API_KEY
+  // Integração de embedding desativada neste deploy (decisão 2026-08).
+  // Sem API de embedding → retorna vazio (guardrails vão recusar com mensagem amigável).
+  const apiKey = ''
   if (!apiKey) {
-    // Sem API de embedding → retorna vazio (guardrails vão recusar com mensagem amigável)
     return []
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey)
-  const embedModel = genAI.getGenerativeModel({ model: 'text-embedding-004' })
-  const embedResult = await embedModel.embedContent(query)
-  const queryVector = embedResult.embedding.values
+  // Bloco abaixo desativado — reativar junto com llm.ts quando o serviço voltar.
+  // (Comandos comentados mantidos como referência para reativação futura.)
+  // 1. instanciar o client da LLM
+  // 2. embedContent(query) -> number[]
+  // 3. passar para o findNearest
+  const queryVector: number[] = []
 
   const db = getFirestore()
 
@@ -61,8 +64,13 @@ export async function retrieveRelevantChunks(
 
   const chunks: RetrievedChunk[] = []
   results.forEach((doc) => {
-    const data = doc.data()
-    const distance = (doc as any).get('distance') ?? 1
+    const data = doc.data() as {
+      text?: string
+      section?: string
+      metadata?: Record<string, unknown>
+      distance?: number
+    }
+    const distance = data.distance ?? 1
     const similarity = 1 - distance / 2
     if (similarity < minSimilarity) return
     chunks.push({
