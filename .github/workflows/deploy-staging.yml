@@ -36,12 +36,12 @@ jobs:
         run: npm run build
 
       - name: Selecionar projeto de staging
-        run: firebase use staging
+        run: npx firebase use staging
 
       - name: Deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: firebase deploy --non-interactive --token "$FIREBASE_TOKEN"
+        run: npx firebase deploy --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Smoke test
         run: |

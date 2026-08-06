@@ -69,13 +69,13 @@ jobs:
         run: npm run build
 
       - name: Selecionar projeto de produção
-        run: firebase use prod
+        run: npx firebase use prod
 
       - name: Backup antes do deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
+          npx firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
             --project prod \
             --only hosting \
             live:pre-deploy-$(date +%Y%m%d-%H%M%S)
@@ -83,7 +83,7 @@ jobs:
       - name: Deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: firebase deploy --non-interactive --token "$FIREBASE_TOKEN"
+        run: npx firebase deploy --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Smoke test
         run: |
