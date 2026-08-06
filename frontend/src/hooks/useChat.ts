@@ -65,7 +65,16 @@ export function useChat() {
         }
         addMessage(assistantMessage)
       } catch (err: any) {
-        pushToast(err.message || 'Erro ao enviar mensagem', 'error')
+        const code = err?.code as string | undefined
+        if (code === 'functions/not-found' || code === 'functions/unavailable') {
+          pushToast(
+            'O serviço de chat ainda não está disponível neste deploy. ' +
+              'A LLM precisa ser habilitada pelo administrador.',
+            'warning',
+          )
+        } else {
+          pushToast(err?.message || 'Erro ao enviar mensagem', 'error')
+        }
         console.error('Chat error:', err)
       } finally {
         setThinking(false)

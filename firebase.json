@@ -72,8 +72,7 @@
         "node_modules",
         ".git",
         "firebase-debug.log",
-        "firebase-debug.*.log",
-        "lib"
+        "firebase-debug.*.log"
       ],
       "predeploy": [
         "npm --prefix functions run lint",

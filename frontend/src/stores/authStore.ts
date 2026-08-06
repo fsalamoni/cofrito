@@ -10,7 +10,8 @@ import {
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth'
-import { auth } from '@/lib/firebase'
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
+import { auth, firestore } from '@/lib/firebase'
 
 interface AuthState {
   user: User | null
@@ -24,6 +25,46 @@ interface AuthState {
   signOut: () => Promise<void>
 }
 
+/**
+ * Cria (ou atualiza) o documento `users/{uid}` com consent aceito.
+ * Necessário porque as Firestore rules exigem esse doc para o usuário
+ * acessar o corpus e gravar histórico de conversas.
+ */
+async function ensureUserDoc(user: User): Promise<void> {
+  const ref = doc(firestore, `users/${user.uid}`)
+  const snap = await getDoc(ref)
+  const email = user.email ?? ''
+  const displayName =
+    user.displayName?.trim() ||
+    (email.includes('@') ? email.split('@')[0] : 'Usuário')
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      uid: user.uid,
+      email,
+      displayName,
+      institutionalEmail: email.endsWith('@mp.rs.gov.br') || email.endsWith('@mprs.mp.br'),
+      role: 'externo',
+      status: 'active',
+      createdAt: serverTimestamp(),
+      lastSeen: serverTimestamp(),
+      consent: {
+        acceptedAt: serverTimestamp(),
+        version: '1.0',
+        ipHash: '',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      },
+    })
+  } else {
+    // Atualiza lastSeen a cada login
+    await setDoc(
+      ref,
+      { lastSeen: serverTimestamp() },
+      { merge: true },
+    )
+  }
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   loading: false,
@@ -33,7 +74,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   init: () => {
     const unsubscribe = onAuthStateChanged(
       auth,
-      (user) => set({ user, initialized: true, loading: false }),
+      async (user) => {
+        if (user) {
+          try {
+            await ensureUserDoc(user)
+          } catch (err) {
+            // Não bloqueia o login se Firestore falhar (ex.: rules).
+            console.warn('ensureUserDoc falhou:', err)
+          }
+        }
+        set({ user, initialized: true, loading: false })
+      },
       (error) => set({ error: error.message, initialized: true, loading: false }),
     )
     return unsubscribe
