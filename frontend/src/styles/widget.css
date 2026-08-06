@@ -1,17 +1,18 @@
 /**
- * Estilos específicos do widget (usado dentro do Shadow DOM).
- * NÃO importa Tailwind aqui — tudo é CSS puro para isolar.
+ * Estilos do widget do Cofrito (Shadow DOM).
+ * Tudo é CSS puro para isolar do site hospedeiro.
  */
 
 :host {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  z-index: 2147483647; /* máximo z-index possível */
-  font-family: 'Inter', system-ui, sans-serif;
+  z-index: 2147483647;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 14px;
   color: #1a1a1a;
   line-height: 1.5;
+  font-weight: 400;
 }
 
 :host([position='bottom-left']) {
@@ -31,11 +32,493 @@
 button {
   font: inherit;
   cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+/* === FAB (botão flutuante) === */
+
+.cofrito-fab {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(26, 77, 143, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 2px solid #1a4d8f;
+  overflow: hidden;
+}
+
+.cofrito-fab:hover {
+  transform: scale(1.05);
+  box-shadow: 0 12px 32px rgba(26, 77, 143, 0.35), 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.cofrito-fab:active {
+  transform: scale(0.95);
+}
+
+.cofrito-fab-img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  display: block;
+}
+
+.cofrito-fab-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 12px;
+  height: 12px;
+  background: #22c55e;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* === Painel === */
+
+.cofrito-panel {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  height: 600px;
+  max-height: calc(100vh - 140px);
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(26, 77, 143, 0.25), 0 4px 16px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+  border: 1px solid #e5e7eb;
+}
+
+:host([position='bottom-left']) .cofrito-panel {
+  right: auto;
+  left: 20px;
+}
+
+:host([position='bottom-center']) .cofrito-panel {
+  right: 50%;
+  transform: translateX(50%);
+}
+
+/* === Header === */
+
+.cofrito-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #1a4d8f 0%, #2d6cb8 100%);
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cofrito-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cofrito-header-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.cofrito-header-status {
+  margin: 2px 0 0;
+  font-size: 12px;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cofrito-status-dot {
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.cofrito-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.cofrito-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #ffffff;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.cofrito-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.cofrito-avatar-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  object-fit: contain;
+  display: block;
+}
+
+/* === Body do painel === */
+
+.cofrito-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cofrito-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f9fafb;
+}
+
+.cofrito-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cofrito-messages::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+/* === Input === */
+
+.cofrito-input-area {
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.cofrito-input-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.cofrito-input-textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  resize: none;
+  outline: none;
+  background: #ffffff;
+  color: #1a1a1a;
+}
+
+.cofrito-input-textarea:focus {
+  border-color: #1a4d8f;
+  box-shadow: 0 0 0 3px rgba(26, 77, 143, 0.1);
+}
+
+.cofrito-send-btn {
+  width: 40px;
+  height: 40px;
+  background: #1a4d8f;
+  color: #ffffff;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.cofrito-send-btn:hover:not(:disabled) {
+  background: #15406f;
+}
+
+.cofrito-send-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* === Login === */
+
+.cofrito-login {
+  padding: 24px;
+  text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+
+.cofrito-login-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a4d8f;
+}
+
+.cofrito-login-text {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.cofrito-login-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  margin-top: 8px;
+}
+
+.cofrito-login-field:focus-within {
+  border-color: #1a4d8f;
+  box-shadow: 0 0 0 3px rgba(26, 77, 143, 0.1);
+}
+
+.cofrito-login-icon {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.cofrito-login-field input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font: inherit;
+  background: transparent;
+  color: #1a1a1a;
+}
+
+.cofrito-login-btn {
+  background: #1a4d8f;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: background 0.15s ease;
+  margin-top: 8px;
+}
+
+.cofrito-login-btn:hover:not(:disabled) {
+  background: #15406f;
+}
+
+.cofrito-login-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.cofrito-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.cofrito-login-terms {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: #9ca3af;
+  line-height: 1.5;
+}
+
+.cofrito-login-terms a {
+  color: #1a4d8f;
+  text-decoration: underline;
+}
+
+.cofrito-login-sent {
+  padding: 24px;
+  text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+
+.cofrito-login-sent h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #1a4d8f;
+}
+
+.cofrito-login-sent p {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.cofrito-link-btn {
+  color: #1a4d8f;
+  font-size: 13px;
+  text-decoration: underline;
+  margin-top: 8px;
+}
+
+/* === Welcome (estado vazio) === */
+
+.cofrito-welcome {
+  text-align: center;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.cofrito-welcome h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a4d8f;
+}
+
+.cofrito-welcome p {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.cofrito-welcome-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.cofrito-suggestion-btn {
+  text-align: left;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #1a4d8f;
+  transition: all 0.15s ease;
+}
+
+.cofrito-suggestion-btn:hover {
+  background: #f3f4f6;
+  border-color: #1a4d8f;
+}
+
+/* === Mensagem === */
+
+.cofrito-message {
+  display: flex;
+  gap: 8px;
+  max-width: 85%;
+}
+
+.cofrito-message--user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.cofrito-message--assistant {
+  align-self: flex-start;
+}
+
+.cofrito-message-bubble {
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+}
+
+.cofrito-message--user .cofrito-message-bubble {
+  background: #1a4d8f;
+  color: #ffffff;
+  border-color: #1a4d8f;
+}
+
+.cofrito-message-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+/* === Typing indicator === */
+
+.cofrito-typing {
+  display: flex;
+  gap: 4px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  align-self: flex-start;
+  align-items: center;
+}
+
+.cofrito-typing-dot {
+  width: 6px;
+  height: 6px;
+  background: #9ca3af;
+  border-radius: 50%;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.cofrito-typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.cofrito-typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }
 
 @media (prefers-reduced-motion: reduce) {

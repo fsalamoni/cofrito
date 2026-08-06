@@ -2,9 +2,7 @@
  * AgentAvatar — mascote do Cofrito com estados.
  */
 import { motion } from 'framer-motion'
-import cofritoIdle from '@/assets/cofrito/cofrito-200.png'
-import cofritoThinking from '@/assets/cofrito/cofrito-thinking.png'
-import cofritoError from '@/assets/cofrito/cofrito-error.png'
+import cofritoImg from '@/assets/cofrito/cofrito.png'
 
 export type AgentState = 'idle' | 'thinking' | 'error' | 'happy'
 
@@ -21,18 +19,11 @@ const SIZES = {
   xl: 200,
 }
 
-const STATE_IMAGES: Record<AgentState, string> = {
-  idle: cofritoIdle,
-  thinking: cofritoThinking,
-  error: cofritoError,
-  happy: cofritoIdle,
-}
-
 export function AgentAvatar({ state = 'idle', size = 'md', className = '' }: AgentAvatarProps) {
   const px = SIZES[size]
   return (
     <motion.img
-      src={STATE_IMAGES[state]}
+      src={cofritoImg}
       alt="Cofrito"
       width={px}
       height={px}

@@ -31,20 +31,6 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "conversations",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "lastActivityAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "users",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "lastSeen", "order": "DESCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []

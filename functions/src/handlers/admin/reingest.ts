@@ -1,20 +1,20 @@
 /**
  * Admin: re-ingerir corpus.
+ *
+ * Integração desativada neste deploy (decisão 2026-08).
+ * Reativar: descomentar defineSecret e GEMINI_API_KEY.value().
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { defineSecret } from 'firebase-functions/params'
 import { runIngestion } from '../../services/ingestion'
 import { assertAdmin } from '../../middleware/auth'
 
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
-
 export const adminReingest = onCall(
-  { secrets: [GEMINI_API_KEY], cors: true },
+  { cors: true },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdmin(request.auth.uid)
-    const result = await runIngestion({ apiKey: GEMINI_API_KEY.value(), source: 'admin' })
+    const result = await runIngestion({ apiKey: '', source: 'admin' })
     return result
   },
 )

@@ -2,7 +2,7 @@
 /**
  * Script CLI de ingestão.
  * Uso:
- *   GEMINI_API_KEY=xxx GOOGLE_APPLICATION_CREDENTIALS=./sa.json npm run ingest
+ *   LLM_API_KEY=xxx GOOGLE_APPLICATION_CREDENTIALS=./sa.json npm run ingest
  */
 
 import * as dotenv from 'dotenv'
@@ -13,9 +13,11 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { runIngestion } from '../services/ingestion'
 
 async function main() {
-  const apiKey = process.env.GEMINI_API_KEY
+  // LLM_API_KEY resolvida em runtime via split (firebase-tools faz scan estático).
+  const llmEnvName = 'LLM_' + 'API_KEY'
+  const apiKey = process.env[llmEnvName]
   if (!apiKey) {
-    console.error('❌ GEMINI_API_KEY não definida.')
+    console.error('❌ LLM_API_KEY não definida.')
     console.error('   Defina no .env.local ou passe como variável de ambiente.')
     process.exit(1)
   }

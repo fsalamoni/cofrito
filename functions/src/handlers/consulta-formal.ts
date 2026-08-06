@@ -3,7 +3,6 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { defineSecret } from 'firebase-functions/params'
 import { logger } from 'firebase-functions/v2'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { z } from 'zod'
@@ -11,8 +10,6 @@ import { z } from 'zod'
 import { sendEmail } from '../services/email'
 import { generateConsultaProtocol } from '../utils/protocol'
 import { validatePGEA } from '../utils/validators'
-
-const RESEND_API_KEY = defineSecret('RESEND_API_KEY')
 
 const ConsultaRequestSchema = z.object({
   assunto: z.string().min(5).max(200),
@@ -26,7 +23,7 @@ const ConsultaRequestSchema = z.object({
 })
 
 export const openConsultaFormal = onCall(
-  { secrets: [RESEND_API_KEY], cors: true },
+  { cors: true },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para abrir consulta formal.')
@@ -63,15 +60,18 @@ export const openConsultaFormal = onCall(
     await db.collection('consultas-formais').doc(protocol).set(consultaData)
 
     // Notifica o CAO
+    // Resend deliberadamente fora de escopo neste deploy (decisão 2026-08).
     try {
-      const apiKey = RESEND_API_KEY.value()
+      const apiKey = ''
       if (apiKey) {
         await sendEmail({
           apiKey,
-          to: process.env.CAO_EMAIL || 'caocivel@mprs.mp.br',
+          to: 'caocivel@mprs.mp.br',
           subject: `[${protocol}] Nova consulta formal via agente`,
           body: formatConsultaEmail(consultaData),
         })
+      } else {
+        logger.warn('consultaFormal.email.skipped', { protocol, reason: 'email desabilitado neste deploy' })
       }
     } catch (err) {
       logger.error('consultaFormal.email.error', { protocol, err })

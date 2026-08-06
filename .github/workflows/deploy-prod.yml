@@ -1,10 +1,12 @@
-name: Deploy Production (manual)
+name: Deploy Production
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
+      tag:
+        description: 'Tag a deployar (ex: v1.0.0). Deixe vazio para HEAD de main.'
+        required: false
+        default: ''
       confirm:
         description: 'Digite "DEPLOY" para confirmar'
         required: true
@@ -25,29 +27,36 @@ jobs:
           exit 1
 
   deploy:
-    name: Deploy main → cofrito.web.app
-    needs: validate
+    name: Deploy to production
+    if: github.event.inputs.confirm == 'DEPLOY'
     runs-on: ubuntu-latest
     environment:
       name: production
       url: https://cofrito.web.app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || 'main' }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
 
-      - name: Validar GEMINI_API_KEY
-        run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "::error::GEMINI_API_KEY não está configurada."
-            exit 1
-          fi
-
       - name: Instalar dependências
         run: npm ci
+
+      - name: Validar versão
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            git fetch --tags
+            if ! git rev-parse "${{ github.event.inputs.tag }}" >/dev/null 2>&1; then
+              echo "::error::Tag ${{ github.event.inputs.tag }} não existe"
+              exit 1
+            fi
+            git checkout "${{ github.event.inputs.tag }}"
+          fi
 
       - name: Build
         env:
@@ -57,58 +66,53 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
         run: npm run build
 
-      - name: Selecionar projeto
+      - name: Selecionar projeto de produção
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase use prod --token "$FIREBASE_TOKEN"
+
+      - name: Backup antes do deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          npm install -g firebase-tools@13
-          firebase use default --token "$FIREBASE_TOKEN"
+          npx firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
+            --project prod \
+            --only hosting \
+            live:pre-deploy-$(date +%Y%m%d-%H%M%S)
 
       - name: Deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          firebase deploy \
-            --only functions,firestore:rules,firestore:indexes,hosting,storage \
-            --non-interactive --token "$FIREBASE_TOKEN"
-
-      - name: Ingerir corpus
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          cd functions
-          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa.json
-          GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json \
-          GEMINI_API_KEY="$GEMINI_API_KEY" \
-          FIREBASE_TOKEN="$FIREBASE_TOKEN" \
-          npm run ingest
+        run: npx firebase deploy --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Smoke test
         run: |
           sleep 15
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://cofrito.web.app/)
           if [ "$STATUS" != "200" ]; then
-            echo "::error::Smoke test falhou: HTTP $STATUS"
+            echo "::error::Smoke test falhou: $STATUS"
             exit 1
           fi
-          echo "✓ Smoke test passou (HTTP 200)"
+          echo "✓ Smoke test passou"
 
-      - name: Health check da função chat
-        run: |
-          sleep 5
-          # Tenta chamar a função (vai falhar auth mas confirma que está deployed)
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -d '{"data":{"message":"test"}}' \
-            https://southamerica-east1-cofrito.cloudfunctions.net/chat || echo "000")
-          echo "Chat function HTTP: $RESPONSE (esperado 401/403 = deployed, 404 = não deployed)"
-          if [ "$RESPONSE" = "404" ]; then
-            echo "::error::Função chat não está deployed"
-            exit 1
-          fi
+      - name: Notificar Slack
+        if: always()
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "🚨 Deploy produção: ${{ job.status }}",
+              "attachments": [
+                {
+                  "color": "${{ job.status == 'success' && 'good' || 'danger' }}",
+                  "fields": [
+                    { "title": "Tag/Commit", "value": "${{ github.event.inputs.tag || github.sha }}", "short": true },
+                    { "title": "Autor", "value": "${{ github.actor }}", "short": true }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

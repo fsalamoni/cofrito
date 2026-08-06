@@ -2,6 +2,8 @@
  * Validadores utilitários.
  */
 
+import { createHash } from 'node:crypto'
+
 export function validatePGEA(pgea: string): { valid: boolean; reason?: string } {
   const regex = /^\d{5}\.\d{3}\.\d{3}\/\d{4}$/
   if (!regex.test(pgea)) {
@@ -11,7 +13,5 @@ export function validatePGEA(pgea: string): { valid: boolean; reason?: string } 
 }
 
 export function sha256(text: string): string {
-  // Para uso em Node (Cloud Functions), usar crypto do Node
-  const crypto = require('node:crypto')
-  return crypto.createHash('sha256').update(text).digest('hex')
+  return createHash('sha256').update(text).digest('hex')
 }

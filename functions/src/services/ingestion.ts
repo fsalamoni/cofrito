@@ -51,7 +51,7 @@ const VALID_TYPES = [
   'jurisprudencia',
 ] as const
 
-const EMBEDDING_COST_PER_1M_TOKENS = 0.025 // Gemini text-embedding-004
+const EMBEDDING_COST_PER_1M_TOKENS = 0.025 // embedding cost (provider desativado)
 
 export async function runIngestion(opts: {
   apiKey: string
@@ -181,7 +181,7 @@ function validateFrontMatter(meta: unknown): {
   if (!fm.title || typeof fm.title !== 'string') {
     return { valid: false, error: 'title ausente ou inválido' }
   }
-  if (!fm.type || !VALID_TYPES.includes(fm.type as any)) {
+  if (!fm.type || !VALID_TYPES.includes(fm.type as (typeof VALID_TYPES)[number])) {
     return { valid: false, error: `type inválido (esperado: ${VALID_TYPES.join(', ')})` }
   }
   const area = Array.isArray(fm.area) ? fm.area : fm.area ? [fm.area] : []

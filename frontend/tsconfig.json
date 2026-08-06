@@ -20,6 +20,7 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
+    "types": ["vite/client", "vitest/globals", "node"],
     "paths": {
       "@/*": ["./src/*"]
     }

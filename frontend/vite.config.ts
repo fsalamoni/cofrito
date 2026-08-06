@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
@@ -21,7 +21,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'react-vendor': ['react', 'react-dom'],
           'radix-vendor': [
             '@radix-ui/react-dialog',
             '@radix-ui/react-dropdown-menu',

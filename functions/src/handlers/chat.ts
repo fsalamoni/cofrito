@@ -4,7 +4,6 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { defineSecret } from 'firebase-functions/params'
 import { logger } from 'firebase-functions/v2'
 import { z } from 'zod'
 
@@ -15,8 +14,6 @@ import { checkScopeGuardrail } from '../services/guardrails'
 import { getUserProfile } from '../services/profile'
 import { logAnalytics } from '../services/analytics'
 import { filterPII } from '../services/anonymizer'
-
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
 
 const ChatRequestSchema = z.object({
   conversationId: z.string().optional(),
@@ -30,7 +27,7 @@ const ChatRequestSchema = z.object({
 })
 
 export const chat = onCall(
-  { secrets: [GEMINI_API_KEY], cors: true, enforceAppCheck: false },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para conversar com o Cofrito.')
@@ -47,7 +44,8 @@ export const chat = onCall(
 
     try {
       // 1. Anonimiza PII
-      const sanitizedText = filterPII(message).text
+      const sanitized = filterPII(message)
+      const sanitizedText = sanitized.text
 
       // 2. Recupera histórico recente
       const history = await getRecentHistory(userId, conversationId, 6)
@@ -58,8 +56,8 @@ export const chat = onCall(
       // 4. Guardrail
       const scopeCheck = checkScopeGuardrail(sanitizedText, chunks)
       if (!scopeCheck.inScope) {
-        const messageId = await saveMessage(userId, conversationId ?? '', 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
-        await saveMessage(userId, conversationId ?? '', 'user', message)
+        const messageId = await saveMessage(userId, conversationId, 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
+        await saveMessage(userId, conversationId, 'user', message)
         logAnalytics('chat', { userId, intent: 'out_of_scope', sourcesCount: 0, latencyMs: Date.now() - start, guardrailTriggered: scopeCheck.reason })
         return {
           conversationId: messageId.conversationId,
@@ -77,25 +75,28 @@ export const chat = onCall(
       }
 
       // 5. Perfil
-      const profile = await getUserProfile(userId)
+      const userProfile = await getUserProfile(userId)
+      const profile = {
+        displayName: userProfile.displayName,
+        inferredAreas: userProfile.areasInferidas,
+      }
 
       // 6. LLM
+      // Integração LLM deliberadamente fora de escopo neste deploy (decisão 2026-08).
+      // apiKey é string vazia → services/llm.ts retorna mensagem amigável.
       const { content, sources, tokensUsed } = await generateAnswer({
         userMessage: sanitizedText,
         history,
         chunks,
-        profile: {
-          displayName: profile?.displayName ?? 'Promotor',
-          inferredAreas: profile?.areasInferidas ?? [],
-        },
-        apiKey: GEMINI_API_KEY.value(),
+        profile,
+        apiKey: '',
       })
 
       // 7. Persistência
-      await saveMessage(userId, conversationId ?? '', 'user', message)
+      await saveMessage(userId, conversationId, 'user', message)
       const { conversationId: newConvId, messageId } = await saveMessage(
         userId,
-        conversationId ?? '',
+        conversationId,
         'assistant',
         content,
         sources,
@@ -103,7 +104,7 @@ export const chat = onCall(
       )
 
       const latencyMs = Date.now() - start
-      logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed })
+      logAnalytics('chat', { userId, intent: context?.intent, sourcesCount: sources.length, latencyMs, tokensUsed })
 
       logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed })
 
