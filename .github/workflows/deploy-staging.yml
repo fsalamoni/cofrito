@@ -36,7 +36,9 @@ jobs:
         run: npm run build
 
       - name: Selecionar projeto de staging
-        run: npx firebase use staging
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase use staging --token "$FIREBASE_TOKEN"
 
       - name: Deploy
         env:

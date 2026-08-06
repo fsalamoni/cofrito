@@ -69,7 +69,9 @@ jobs:
         run: npm run build
 
       - name: Selecionar projeto de produção
-        run: npx firebase use prod
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase use prod --token "$FIREBASE_TOKEN"
 
       - name: Backup antes do deploy
         env:
