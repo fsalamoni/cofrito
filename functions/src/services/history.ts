@@ -23,10 +23,6 @@ export interface Conversation {
   messageCount: number
 }
 
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
 export async function saveMessage(
   userId: string,
   conversationId: string | undefined,
@@ -86,8 +82,9 @@ export async function getRecentHistory(
     .get()
   return snap.docs
     .map((d) => d.data() as ChatMessage)
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
     .reverse()
-    .map((m) => ({ role: m.role, content: m.content }))
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 }
 
 export async function getConversations(userId: string): Promise<Conversation[]> {

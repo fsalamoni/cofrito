@@ -3,16 +3,13 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { defineSecret } from 'firebase-functions/params'
 import { logger } from 'firebase-functions/v2'
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { z } from 'zod'
 
 import { sendEmail } from '../services/email'
 import { generateConsultaProtocol } from '../utils/protocol'
 import { validatePGEA } from '../utils/validators'
-
-const RESEND_API_KEY = defineSecret('RESEND_API_KEY')
 
 const ConsultaRequestSchema = z.object({
   assunto: z.string().min(5).max(200),
@@ -26,7 +23,7 @@ const ConsultaRequestSchema = z.object({
 })
 
 export const openConsultaFormal = onCall(
-  { secrets: [RESEND_API_KEY], cors: true },
+  { cors: true },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para abrir consulta formal.')
@@ -64,7 +61,7 @@ export const openConsultaFormal = onCall(
 
     // Notifica o CAO
     try {
-      const apiKey = RESEND_API_KEY.value()
+      const apiKey = process.env.RESEND_API_KEY
       if (apiKey) {
         await sendEmail({
           apiKey,
@@ -72,6 +69,8 @@ export const openConsultaFormal = onCall(
           subject: `[${protocol}] Nova consulta formal via agente`,
           body: formatConsultaEmail(consultaData),
         })
+      } else {
+        logger.warn('consultaFormal.email.skipped', { protocol, reason: 'RESEND_API_KEY não configurada' })
       }
     } catch (err) {
       logger.error('consultaFormal.email.error', { protocol, err })

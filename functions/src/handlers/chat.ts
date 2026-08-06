@@ -4,7 +4,6 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { defineSecret } from 'firebase-functions/params'
 import { logger } from 'firebase-functions/v2'
 import { z } from 'zod'
 
@@ -15,8 +14,6 @@ import { checkScopeGuardrail } from '../services/guardrails'
 import { getUserProfile } from '../services/profile'
 import { logAnalytics } from '../services/analytics'
 import { filterPII } from '../services/anonymizer'
-
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
 
 const ChatRequestSchema = z.object({
   conversationId: z.string().optional(),
@@ -30,7 +27,7 @@ const ChatRequestSchema = z.object({
 })
 
 export const chat = onCall(
-  { secrets: [GEMINI_API_KEY], cors: true, enforceAppCheck: false },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para conversar com o Cofrito.')
@@ -48,17 +45,18 @@ export const chat = onCall(
     try {
       // 1. Anonimiza PII
       const sanitized = filterPII(message)
+      const sanitizedText = sanitized.text
 
       // 2. Recupera histórico recente
       const history = await getRecentHistory(userId, conversationId, 6)
 
       // 3. Retrieval
-      const chunks = await retrieveRelevantChunks(sanitized, { topK: 8, minSimilarity: 0.55 })
+      const chunks = await retrieveRelevantChunks(sanitizedText, { topK: 8, minSimilarity: 0.55 })
 
       // 4. Guardrail
-      const scopeCheck = checkScopeGuardrail(sanitized, chunks)
+      const scopeCheck = checkScopeGuardrail(sanitizedText, chunks)
       if (!scopeCheck.inScope) {
-        const messageId = await saveMessage(userId, conversationId, 'assistant', scopeCheck.refusalMessage, [], 0)
+        const messageId = await saveMessage(userId, conversationId, 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
         await saveMessage(userId, conversationId, 'user', message)
         logAnalytics('chat', { userId, intent: 'out_of_scope', sourcesCount: 0, latencyMs: Date.now() - start, guardrailTriggered: scopeCheck.reason })
         return {
@@ -77,15 +75,19 @@ export const chat = onCall(
       }
 
       // 5. Perfil
-      const profile = await getUserProfile(userId)
+      const userProfile = await getUserProfile(userId)
+      const profile = {
+        displayName: userProfile.displayName,
+        inferredAreas: userProfile.areasInferidas,
+      }
 
       // 6. LLM
       const { content, sources, tokensUsed } = await generateAnswer({
-        userMessage: sanitized,
+        userMessage: sanitizedText,
         history,
         chunks,
         profile,
-        apiKey: GEMINI_API_KEY.value(),
+        apiKey: process.env.GEMINI_API_KEY ?? '',
       })
 
       // 7. Persistência
@@ -96,7 +98,7 @@ export const chat = onCall(
         'assistant',
         content,
         sources,
-        tokensUsed,
+        tokensUsed.total,
       )
 
       const latencyMs = Date.now() - start

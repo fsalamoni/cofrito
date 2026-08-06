@@ -57,7 +57,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (isSignInWithEmailLink(auth, window.location.href)) {
       let email = window.localStorage.getItem('cofrito:email-for-sign-in')
       if (!email) {
-        email = window.prompt('Confirme seu e-mail:') || undefined
+        email = window.prompt('Confirme seu e-mail:') || null
         if (!email) throw new Error('E-mail é obrigatório')
       }
       set({ loading: true, error: null })

@@ -34,7 +34,6 @@ setGlobalOptions({
   cpu: 1,
   concurrency: 80,
   timeoutSeconds: 60,
-  secrets: ['GEMINI_API_KEY', 'RESEND_API_KEY'],
 })
 
 // Public

@@ -25,7 +25,7 @@ interface ChatState {
   loadConversation: (id: string, messages: ChatMessage[]) => void
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>((set) => ({
   conversationId: null,
   messages: [],
   conversations: [],

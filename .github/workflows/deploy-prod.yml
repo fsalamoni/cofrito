@@ -59,6 +59,13 @@ jobs:
           fi
 
       - name: Build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
       - name: Selecionar projeto de produção
@@ -66,7 +73,7 @@ jobs:
 
       - name: Backup antes do deploy
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN_PROD }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
             --project prod \
@@ -75,13 +82,13 @@ jobs:
 
       - name: Deploy
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN_PROD }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: firebase deploy --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Smoke test
         run: |
           sleep 15
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://cofrito.caocipp.mp.rs.gov.br/)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://cofrito.web.app/)
           if [ "$STATUS" != "200" ]; then
             echo "::error::Smoke test falhou: $STATUS"
             exit 1

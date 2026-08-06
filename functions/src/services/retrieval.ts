@@ -29,7 +29,10 @@ export async function retrieveRelevantChunks(
   const { topK = 8, minSimilarity = 0.55, filterType, filterArea } = options
 
   const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error('GEMINI_API_KEY não configurada')
+  if (!apiKey) {
+    // Sem API de embedding → retorna vazio (guardrails vão recusar com mensagem amigável)
+    return []
+  }
 
   const genAI = new GoogleGenerativeAI(apiKey)
   const embedModel = genAI.getGenerativeModel({ model: 'text-embedding-004' })
@@ -48,7 +51,9 @@ export async function retrieveRelevantChunks(
 
   const results = await query_ref
     .where('status', '==', 'ativo')
-    .findNearest('embedding', queryVector as unknown as FirebaseFirestore.VectorQuery, {
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector,
       limit: topK,
       distanceMeasure: 'COSINE',
     })

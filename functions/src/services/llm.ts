@@ -2,7 +2,7 @@
  * LLM service — wrapper para Gemini.
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'
 import type { RetrievedChunk } from './retrieval'
 import { SYSTEM_PROMPT } from '../prompts/system'
 
@@ -23,6 +23,23 @@ export interface GenerateAnswerOutput {
 export async function generateAnswer(input: GenerateAnswerInput): Promise<GenerateAnswerOutput> {
   const { userMessage, history, chunks, profile, apiKey } = input
 
+  if (!apiKey) {
+    return {
+      content:
+        '⚠️ O serviço de geração de respostas (Gemini) ainda não está configurado neste ambiente. ' +
+        'A estrutura do agente está no ar, mas a LLM precisa ser habilitada pelo administrador. ' +
+        'Enquanto isso, você pode navegar pelo material do CAOCIPP nos documentos abaixo ou abrir uma consulta formal.',
+      sources: chunks.map((c) => ({
+        docId: c.docId,
+        chunkId: c.id,
+        section: c.section,
+        title: c.section || c.docId,
+        relevance: c.similarity,
+      })),
+      tokensUsed: { input: 0, output: 0, total: 0 },
+    }
+  }
+
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
@@ -34,10 +51,10 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Genera
       maxOutputTokens: 1024,
     },
     safetySettings: [
-      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
-      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' },
-      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE' },
-      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
     ],
   })
 
