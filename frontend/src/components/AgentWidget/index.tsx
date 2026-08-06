@@ -12,7 +12,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useAuth } from '@/hooks/useAuth'
 import { ChatPanel } from './ChatPanel'
 import { AgentAvatar } from './AgentAvatar'
-import cofritoImg from '@/assets/cofrito/cofrito-200.png'
+import cofritoImg from '@/assets/cofrito/cofrito.png'
 import { t } from '@/i18n/config'
 
 interface AgentWidgetProps {
