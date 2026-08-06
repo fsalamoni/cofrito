@@ -28,11 +28,11 @@ jobs:
 
   deploy:
     name: Deploy to production
-    needs: validate
+    if: github.event.inputs.confirm == 'DEPLOY'
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://cofrito.caocipp.mp.rs.gov.br
+      url: https://cofrito.web.app
     steps:
       - uses: actions/checkout@v4
         with:
