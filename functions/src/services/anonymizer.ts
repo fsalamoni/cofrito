@@ -31,7 +31,7 @@ export function filterPII(text: string): AnonymizedResult {
   let result = text
   let counter = 0
 
-  for (const { pattern, replacement, label } of PATTERNS) {
+  for (const { pattern, label } of PATTERNS) {
     result = result.replace(pattern, (match) => {
       const placeholder = `[${label}_${counter++}]`
       mapping.set(placeholder, match)

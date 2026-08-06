@@ -1,24 +1,16 @@
 {
   "projects": {
-    "default": "agente-caocipp-dev",
-    "dev": "agente-caocipp-dev",
-    "staging": "agente-caocipp-staging",
-    "prod": "agente-caocipp-prod"
+    "default": "cofrito",
+    "dev": "cofrito",
+    "staging": "cofrito",
+    "prod": "cofrito"
   },
   "targets": {
-    "agente-caocipp-prod": {
+    "cofrito": {
       "hosting": {
-        "cofrito": ["cofrito-prod"]
-      }
-    },
-    "agente-caocipp-staging": {
-      "hosting": {
-        "cofrito": ["cofrito-staging"]
-      }
-    },
-    "agente-caocipp-dev": {
-      "hosting": {
-        "cofrito": ["cofrito-dev"]
+        "cofrito": [
+          "cofrito-dev"
+        ]
       }
     }
   }

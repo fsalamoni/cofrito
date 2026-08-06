@@ -48,10 +48,12 @@ export async function retrieveRelevantChunks(
 
   const results = await query_ref
     .where('status', '==', 'ativo')
-    .findNearest('embedding', queryVector as unknown as FirebaseFirestore.VectorQuery, {
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: queryVector as unknown as FirebaseFirestore.VectorValue,
       limit: topK,
       distanceMeasure: 'COSINE',
-    })
+    } as unknown as Parameters<typeof query_ref.findNearest>[0])
     .get()
 
   const chunks: RetrievedChunk[] = []

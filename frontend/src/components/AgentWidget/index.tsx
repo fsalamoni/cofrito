@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MessageCircle, X, Send, History, Plus } from 'lucide-react'
+import { X, History, Plus } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useAuth } from '@/hooks/useAuth'
 import { ChatPanel } from './ChatPanel'

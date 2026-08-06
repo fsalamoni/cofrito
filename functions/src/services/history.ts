@@ -26,6 +26,8 @@ export interface Conversation {
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
+// generateId disponível para uso futuro (atualmente o Firestore gera o ID via .doc())
+void generateId
 
 export async function saveMessage(
   userId: string,
@@ -87,7 +89,10 @@ export async function getRecentHistory(
   return snap.docs
     .map((d) => d.data() as ChatMessage)
     .reverse()
-    .map((m) => ({ role: m.role, content: m.content }))
+    .map((m) => ({
+      role: m.role === 'system' ? 'user' : m.role,
+      content: m.content,
+    }))
 }
 
 export async function getConversations(userId: string): Promise<Conversation[]> {

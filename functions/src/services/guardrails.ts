@@ -11,12 +11,12 @@ export interface ScopeCheckResult {
 }
 
 const OFF_TOPIC_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /clima|tempo|previs[ãa]o|meteorologia/i, reason: 'clima' },
-  { pattern: /futebol|jogo|campeonato|brasileir[ãa]o/i, reason: 'esporte' },
-  { pattern: /receita|culin[áa]ria|cozinhar|comida|restaurante/i, reason: 'culinária' },
+  { pattern: /clima|tempo|previs[ãa]o|meteorologia|chover|chuva|temperatura|umidade/i, reason: 'clima' },
+  { pattern: /futebol|jogo|campeonato|brasileir[ãa]o|gr[êe]mio|internacional/i, reason: 'esporte' },
+  { pattern: /receita|culin[áa]ria|cozinhar|comida|restaurante|bolo/i, reason: 'culinária' },
   { pattern: /piada|anedota/i, reason: 'entretenimento' },
-  { pattern: /m[úu]sica|filme|livro|s[êe]rie|netflix/i, reason: 'entretenimento' },
-  { pattern: /criptomoeda|bitcoin|investimento|a[çc][ãa]o.*bolsa/i, reason: 'investimento' },
+  { pattern: /m[úu]sica|filme|s[êe]rie|netflix/i, reason: 'entretenimento' },
+  { pattern: /criptomoeda|bitcoin|investimento|a[çc][ãa]o.*bolsa|d[óo]lar/i, reason: 'investimento' },
   { pattern: /comprar.*carro|im[óo]vel.*comprar|casa pr[óo]pria/i, reason: 'compra pessoal' },
 ]
 

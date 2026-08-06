@@ -43,7 +43,7 @@ export { openConsultaFormal } from './handlers/consulta-formal'
 export { submitFeedback } from './handlers/feedback'
 export { getProfile } from './handlers/profile'
 export { getHistory } from './handlers/history'
-export { updateProfile } from './handlers/update-profile'
+export { updateProfile } from './handlers/profile-update'
 export { deleteAccount } from './handlers/delete-account'
 
 // Admin

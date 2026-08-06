@@ -47,19 +47,19 @@ export const chat = onCall(
 
     try {
       // 1. Anonimiza PII
-      const sanitized = filterPII(message)
+      const sanitizedText = filterPII(message).text
 
       // 2. Recupera histórico recente
       const history = await getRecentHistory(userId, conversationId, 6)
 
       // 3. Retrieval
-      const chunks = await retrieveRelevantChunks(sanitized, { topK: 8, minSimilarity: 0.55 })
+      const chunks = await retrieveRelevantChunks(sanitizedText, { topK: 8, minSimilarity: 0.55 })
 
       // 4. Guardrail
-      const scopeCheck = checkScopeGuardrail(sanitized, chunks)
+      const scopeCheck = checkScopeGuardrail(sanitizedText, chunks)
       if (!scopeCheck.inScope) {
-        const messageId = await saveMessage(userId, conversationId, 'assistant', scopeCheck.refusalMessage, [], 0)
-        await saveMessage(userId, conversationId, 'user', message)
+        const messageId = await saveMessage(userId, conversationId ?? '', 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
+        await saveMessage(userId, conversationId ?? '', 'user', message)
         logAnalytics('chat', { userId, intent: 'out_of_scope', sourcesCount: 0, latencyMs: Date.now() - start, guardrailTriggered: scopeCheck.reason })
         return {
           conversationId: messageId.conversationId,
@@ -81,26 +81,29 @@ export const chat = onCall(
 
       // 6. LLM
       const { content, sources, tokensUsed } = await generateAnswer({
-        userMessage: sanitized,
+        userMessage: sanitizedText,
         history,
         chunks,
-        profile,
+        profile: {
+          displayName: profile?.displayName ?? 'Promotor',
+          inferredAreas: profile?.areasInferidas ?? [],
+        },
         apiKey: GEMINI_API_KEY.value(),
       })
 
       // 7. Persistência
-      await saveMessage(userId, conversationId, 'user', message)
+      await saveMessage(userId, conversationId ?? '', 'user', message)
       const { conversationId: newConvId, messageId } = await saveMessage(
         userId,
-        conversationId,
+        conversationId ?? '',
         'assistant',
         content,
         sources,
-        tokensUsed,
+        tokensUsed.total,
       )
 
       const latencyMs = Date.now() - start
-      logAnalytics('chat', { userId, intent: context?.intent, sourcesCount: sources.length, latencyMs, tokensUsed })
+      logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed })
 
       logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed })
 

@@ -4,7 +4,6 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { defineSecret } from 'firebase-functions/params'
-import { getFirestore } from 'firebase-admin/firestore'
 import { runIngestion } from '../../services/ingestion'
 import { assertAdmin } from '../../middleware/auth'
 
