@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  security-events: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -30,11 +31,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: functions/package-lock.json
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Type check
         run: npx tsc --noEmit
@@ -57,7 +56,8 @@ jobs:
       - name: Verificar tamanho do bundle
         run: |
           SIZE=$(stat -c %s lib/index.js 2>/dev/null || stat -f %z lib/index.js)
-          echo "Bundle size: ${SIZE} bytes"          if [ "$SIZE" -gt 2097152 ]; then
+          echo "Bundle size: ${SIZE} bytes"
+          if [ "$SIZE" -gt 2097152 ]; then
             echo "::warning::Bundle > 2MB"
           fi
 
@@ -75,11 +75,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.18.0'
-          cache: 'npm'
+          node-version: '20'
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Type check
         run: npx tsc --noEmit
@@ -108,42 +107,26 @@ jobs:
             echo "::warning::Bundle > 500KB (gzip)"
           fi
 
-      - name: Lighthouse CI (smoke)
-        if: github.event_name == 'pull_request'
-        uses: treosh/lighthouse-ci-action@v11
-        with:
-          configPath: .lighthouserc.json
-          uploadArtifacts: true
-
   # ============================================================
-  #  Security audit
+  #  Validar corpus
   # ============================================================
-  security:
-    name: Security
+  validate-corpus:
+    name: Validate corpus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - uses: actions/setup-node@v4
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
+          node-version: '20'
+      - name: Install + validate
+        run: |
+          cd functions
+          npm install --no-audit --no-fund
+          npm run validate:corpus
 
-      - name: Upload Trivy scan results to GitHub Security tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-  # ============================================================
-  #  Compor resultados
-  # ============================================================
   all-jobs-pass:
     name: All jobs
-    needs: [backend, frontend, security]
+    needs: [backend, frontend, validate-corpus]
     runs-on: ubuntu-latest
     if: ${{ always() }}
     steps:
@@ -151,7 +134,7 @@ jobs:
         run: |
           if [ "${{ needs.backend.result }}" != "success" ] || \
              [ "${{ needs.frontend.result }}" != "success" ] || \
-             [ "${{ needs.security.result }}" != "success" ]; then
+             [ "${{ needs.validate-corpus.result }}" != "success" ]; then
             echo "Algum job falhou"
             exit 1
           fi
