@@ -11,6 +11,8 @@ interface ChatState {
   isOpen: boolean
   isThinking: boolean
   isInitialized: boolean
+  /** Permite que o LLM complemente a resposta com informações externas ao corpus. */
+  allowExternal: boolean
 
   init: (open?: boolean) => void
   open: () => void
@@ -23,6 +25,18 @@ interface ChatState {
   setThinking: (b: boolean) => void
   setConversationId: (id: string | null) => void
   loadConversation: (id: string, messages: ChatMessage[]) => void
+  setAllowExternal: (b: boolean) => void
+}
+
+const STORAGE_KEY = 'cofrito:allowExternal'
+
+function loadInitialAllowExternal(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -32,6 +46,7 @@ export const useChatStore = create<ChatState>((set) => ({
   isOpen: false,
   isThinking: false,
   isInitialized: false,
+  allowExternal: loadInitialAllowExternal(),
 
   init: (open = true) => {
     set({ isInitialized: true, isOpen: open })
@@ -58,4 +73,15 @@ export const useChatStore = create<ChatState>((set) => ({
   setConversationId: (id) => set({ conversationId: id }),
 
   loadConversation: (id, messages) => set({ conversationId: id, messages }),
+
+  setAllowExternal: (b) => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY, String(b))
+      }
+    } catch {
+      // ignore
+    }
+    set({ allowExternal: b })
+  },
 }))

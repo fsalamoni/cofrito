@@ -6,11 +6,16 @@
  *  - **Stub**: quando não há API key, retorna mensagem amigável mantendo o
  *    restante do fluxo (sources, tokens) funcional. Útil para dev local e
  *    para validar a UI antes de configurar a LLM.
+ *
+ * Aceita `allowExternal` para construir o system prompt:
+ *  - false (padrão): LLM responde APENAS com base no corpus
+ *  - true: LLM pode complementar com conhecimento geral / web
+ *    (mas as regras primordiais de não-alucinar continuam valendo)
  */
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'
 import type { RetrievedChunk } from './retrieval'
-import { SYSTEM_PROMPT } from '../prompts/system'
+import { buildSystemPrompt } from '../prompts/system'
 
 export interface GenerateAnswerInput {
   userMessage: string
@@ -18,6 +23,7 @@ export interface GenerateAnswerInput {
   chunks: RetrievedChunk[]
   profile: { displayName: string; inferredAreas: string[] }
   apiKey: string | undefined
+  allowExternal?: boolean
 }
 
 export interface GenerateAnswerOutput {
@@ -42,20 +48,28 @@ const STUB_NO_KEY = (chunks: RetrievedChunk[]) => ({
 })
 
 export async function generateAnswer(input: GenerateAnswerInput): Promise<GenerateAnswerOutput> {
-  const { userMessage, history, chunks, profile, apiKey } = input
+  const { userMessage, history, chunks, profile, apiKey, allowExternal = false } = input
 
   // Modo stub: sem API key
   if (!apiKey) {
     return STUB_NO_KEY(chunks)
   }
 
+  // Constrói system prompt com base no modo + corpus
+  const systemPrompt = buildSystemPrompt({
+    allowExternal,
+    hasCorpusChunks: chunks.length > 0,
+    userName: profile.displayName,
+    userAreas: profile.inferredAreas,
+  })
+
   // Modo real: Gemini
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: systemPrompt,
     generationConfig: {
-      temperature: 0.2,
+      temperature: allowExternal ? 0.4 : 0.2, // um pouco mais criativo se external
       topK: 40,
       topP: 0.95,
       maxOutputTokens: 1024,

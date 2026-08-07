@@ -1,10 +1,11 @@
 /**
- * ChatPanel — janela de chat com lista de mensagens + input.
+ * ChatPanel — janela de chat com lista de mensagens + input + toggle de modo.
  */
 import { useEffect, useRef, useState } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Globe, Database } from 'lucide-react'
 import { useChat } from '@/hooks/useChat'
 import { useAuth } from '@/hooks/useAuth'
+import { useChatStore } from '@/stores/chatStore'
 import { MessageBubble } from './MessageBubble'
 import { Welcome } from './Welcome'
 import { TypingIndicator } from './TypingIndicator'
@@ -13,6 +14,8 @@ import { LoginPrompt } from './LoginPrompt'
 export function ChatPanel() {
   const { messages, isThinking, send, restart } = useChat()
   const { user } = useAuth()
+  const allowExternal = useChatStore((s) => s.allowExternal)
+  const setAllowExternal = useChatStore((s) => s.setAllowExternal)
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -47,6 +50,30 @@ export function ChatPanel() {
       </div>
 
       <div className="cofrito-input-area">
+        {/* Toggle de modo: corpus-only (padrão) vs permite informações externas */}
+        <div className="cofrito-mode-toggle" role="group" aria-label="Modo de resposta">
+          <button
+            type="button"
+            onClick={() => setAllowExternal(false)}
+            className={`cofrito-mode-btn ${!allowExternal ? 'active' : ''}`}
+            aria-pressed={!allowExternal}
+            title="Responde apenas com material do acervo do CAOCIPP"
+          >
+            <Database size={14} />
+            <span>Apenas acervo</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAllowExternal(true)}
+            className={`cofrito-mode-btn ${allowExternal ? 'active' : ''}`}
+            aria-pressed={allowExternal}
+            title="Permite complementar com fontes externas (regras primordiais continuam)"
+          >
+            <Globe size={14} />
+            <span>Permitir informações externas</span>
+          </button>
+        </div>
+
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -58,7 +85,7 @@ export function ChatPanel() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Digite sua pergunta..."
+            placeholder={allowExternal ? 'Pergunte algo (com fontes externas)…' : 'Pergunte algo sobre o acervo do CAOCIPP…'}
             disabled={isThinking}
             className="cofrito-input"
             aria-label="Mensagem"

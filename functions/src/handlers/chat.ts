@@ -1,6 +1,10 @@
 /**
  * Handler principal do chat.
  * Recebe pergunta, faz RAG, retorna resposta.
+ *
+ * Aceita flag `allowExternal` no payload: se true, o LLM pode complementar
+ * com conhecimento geral / web. Se false (padrão), o LLM responde APENAS com
+ * base no corpus e recusa se não houver material (regras primordiais).
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
@@ -18,6 +22,7 @@ import { filterPII } from '../services/anonymizer'
 const ChatRequestSchema = z.object({
   conversationId: z.string().optional(),
   message: z.string().min(1).max(2000),
+  allowExternal: z.boolean().optional().default(false),
   context: z
     .object({
       documentId: z.string().optional(),
@@ -38,14 +43,13 @@ export const chat = onCall(
     if (!parsed.success) {
       throw new HttpsError('invalid-argument', 'Mensagem inválida.')
     }
-    const { conversationId, message, context } = parsed.data
+    const { conversationId, message, allowExternal, context } = parsed.data
 
     const start = Date.now()
 
     try {
       // 1. Anonimiza PII
-      const sanitized = filterPII(message)
-      const sanitizedText = sanitized.text
+      const sanitizedText = filterPII(message).text
 
       // 2. Recupera histórico recente
       const history = await getRecentHistory(userId, conversationId, 6)
@@ -56,8 +60,8 @@ export const chat = onCall(
       // 4. Guardrail
       const scopeCheck = checkScopeGuardrail(sanitizedText, chunks)
       if (!scopeCheck.inScope) {
-        const messageId = await saveMessage(userId, conversationId, 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
-        await saveMessage(userId, conversationId, 'user', message)
+        const messageId = await saveMessage(userId, conversationId ?? '', 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
+        await saveMessage(userId, conversationId ?? '', 'user', message)
         logAnalytics('chat', { userId, intent: 'out_of_scope', sourcesCount: 0, latencyMs: Date.now() - start, guardrailTriggered: scopeCheck.reason })
         return {
           conversationId: messageId.conversationId,
@@ -66,6 +70,7 @@ export const chat = onCall(
           sources: [],
           intent: scopeCheck.reason || 'out_of_scope',
           inScope: false,
+          allowExternal,
           feedbackToken: messageId.messageId,
           suggestions: ['O que é o CAOCIPP?', 'Tese sobre improbidade'],
           actions: [{ type: 'open_consulta', label: 'Abrir consulta formal' }],
@@ -77,26 +82,25 @@ export const chat = onCall(
       // 5. Perfil
       const userProfile = await getUserProfile(userId)
       const profile = {
-        displayName: userProfile.displayName,
-        inferredAreas: userProfile.areasInferidas,
+        displayName: userProfile?.displayName ?? 'Promotor',
+        inferredAreas: userProfile?.areasInferidas ?? [],
       }
 
       // 6. LLM
-      // Integração LLM deliberadamente fora de escopo neste deploy (decisão 2026-08).
-      // apiKey é string vazia → services/llm.ts retorna mensagem amigável.
       const { content, sources, tokensUsed } = await generateAnswer({
         userMessage: sanitizedText,
         history,
         chunks,
         profile,
-        apiKey: '',
+        apiKey: process.env.GEMINI_API_KEY ?? '',
+        allowExternal,
       })
 
       // 7. Persistência
-      await saveMessage(userId, conversationId, 'user', message)
+      await saveMessage(userId, conversationId ?? '', 'user', message)
       const { conversationId: newConvId, messageId } = await saveMessage(
         userId,
-        conversationId,
+        conversationId ?? '',
         'assistant',
         content,
         sources,
@@ -104,9 +108,9 @@ export const chat = onCall(
       )
 
       const latencyMs = Date.now() - start
-      logAnalytics('chat', { userId, intent: context?.intent, sourcesCount: sources.length, latencyMs, tokensUsed })
+      logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed, allowExternal })
 
-      logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed })
+      logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed, allowExternal })
 
       return {
         conversationId: newConvId,
@@ -115,6 +119,7 @@ export const chat = onCall(
         sources,
         intent: context?.intent || 'unknown',
         inScope: true,
+        allowExternal,
         feedbackToken: messageId,
         suggestions: [],
         actions: [{ type: 'open_consulta', label: 'Abrir consulta formal' }],
