@@ -135,3 +135,61 @@ export interface Document {
 }
 
 export type ChatRole = 'user' | 'assistant' | 'system'
+
+// ── LLM Config ──────────────────────────────────────────────────────────
+
+/**
+ * Provedor de LLM suportado.
+ *  - 'google'      → Gemini via API Key
+ *  - 'openai'      → OpenAI (compatível com muitos gateways)
+ *  - 'anthropic'   → Claude (via API oficial)
+ *  - 'openrouter'  → OpenRouter (multi-provider)
+ *  - 'deepseek'    → DeepSeek
+ *  - 'kimi'        → Kimi / Moonshot
+ *  - 'qwen'        → Alibaba Qwen (DashScope)
+ *  - 'groq'        → Groq
+ *  - 'nvidia'      → NVIDIA NIM
+ *  - 'mistral'     → Mistral AI
+ *  - 'xai'         → xAI / Grok
+ *  - 'cohere'      → Cohere
+ *  - 'together'    → Together AI
+ *  - 'fireworks'   → Fireworks AI
+ *  - 'perplexity'  → Perplexity
+ *  - 'ollama'      → Ollama (local)
+ *  - 'custom'      → Endpoint OpenAI-compatible customizado
+ */
+export type LLMProvider =
+  | 'google' | 'openai' | 'anthropic' | 'openrouter'
+  | 'deepseek' | 'kimi' | 'qwen' | 'groq' | 'nvidia'
+  | 'mistral' | 'xai' | 'cohere' | 'together'
+  | 'fireworks' | 'perplexity' | 'ollama' | 'custom'
+
+export interface LLMConfig {
+  provider: LLMProvider
+  /** Modelo (ex: 'gemini-2.5-flash', 'claude-3-5-sonnet', 'gpt-4o-mini'). */
+  model: string
+  /** API key do usuário (criptografada em produção). */
+  apiKey: string
+  /** Endpoint customizado (para providers self-hosted). */
+  baseUrl?: string
+  /** Temperatura (0-2). */
+  temperature?: number
+  /** Max tokens. */
+  maxTokens?: number
+  /** System prompt adicional (opcional). */
+  systemPromptOverride?: string
+  /** Salvo em: 'user' ou 'global'. */
+  scope?: 'user' | 'global'
+  /** Metadata. */
+  updatedAt?: string
+}
+
+/** Modelo disponível em um provider. */
+export interface LLMModelInfo {
+  id: string
+  name: string
+  contextWindow?: number
+  supportsTools?: boolean
+  supportsVision?: boolean
+}
+

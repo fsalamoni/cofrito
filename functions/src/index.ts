@@ -38,12 +38,27 @@ setGlobalOptions({
 
 // Public
 export { chat } from './handlers/chat'
+export { chatV2 } from './handlers/chat-v2'
 export { openConsultaFormal } from './handlers/consulta-formal'
 export { submitFeedback } from './handlers/feedback'
 export { getProfile } from './handlers/profile'
 export { getHistory } from './handlers/history'
 export { updateProfile } from './handlers/profile-update'
 export { deleteAccount } from './handlers/delete-account'
+
+// LLM Config (user + admin)
+export {
+  getLLMConfig,
+  setLLMConfig,
+  deleteLLMConfig,
+  adminGetGlobalLLM,
+  adminSetGlobalLLM,
+  listLLMModels,
+  adminListAdmins,
+  adminGrantAdmin,
+  adminRevokeAdmin,
+  adminListUserLLM,
+} from './handlers/llm-config'
 
 // Admin
 export { adminReingest } from './handlers/admin/reingest'

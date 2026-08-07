@@ -1,5 +1,8 @@
 /**
- * AgentAvatar — mascote do Cofrito com estados.
+ * AgentAvatar — mascote do Cofrito.
+ *
+ * Sem moldura circular: imagem em quadrado transparente.
+ * Suporta tamanhos grandes (até 320px).
  */
 import { motion } from 'framer-motion'
 import cofritoImg from '@/assets/cofrito/cofrito.png'
@@ -8,26 +11,25 @@ export type AgentState = 'idle' | 'thinking' | 'error' | 'happy'
 
 interface AgentAvatarProps {
   state?: AgentState
-  /** Tamanho em pixels OU uma chave predefinida. */
-  size?: number | 'sm' | 'md' | 'lg' | 'xl'
+  /** Tamanho em pixels. */
+  size?: number
   className?: string
+  /** Quando true, aplica fundo transparente (sem nada ao redor). */
+  transparent?: boolean
 }
 
-const SIZES: Record<'sm' | 'md' | 'lg' | 'xl', number> = {
-  sm: 40,
-  md: 80,
-  lg: 120,
-  xl: 200,
-}
-
-export function AgentAvatar({ state = 'idle', size = 'md', className = '' }: AgentAvatarProps) {
-  const px = typeof size === 'number' ? size : SIZES[size]
+export function AgentAvatar({
+  state = 'idle',
+  size = 120,
+  className = '',
+  transparent = true,
+}: AgentAvatarProps) {
   return (
     <motion.img
       src={cofritoImg}
       alt="Cofrito"
-      width={px}
-      height={px}
+      width={size}
+      height={size}
       animate={
         state === 'thinking'
           ? { y: [0, -4, 0] }
@@ -41,7 +43,17 @@ export function AgentAvatar({ state = 'idle', size = 'md', className = '' }: Age
           : { duration: 0.5 }
       }
       className={`cofrito-avatar-img ${className}`}
-      style={{ width: px, height: 'auto', maxWidth: 'none' }}
+      style={{
+        width: size,
+        height: size,
+        maxWidth: 'none',
+        display: 'block',
+        // Sem background, sem border, sem border-radius
+        // Imagem flutua limpa com fundo transparente
+        background: transparent ? 'transparent' : undefined,
+        border: 'none',
+        borderRadius: 0,
+      }}
       draggable={false}
     />
   )
