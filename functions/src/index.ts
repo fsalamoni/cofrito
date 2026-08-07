@@ -68,6 +68,16 @@ export { adminReingest } from './handlers/admin/reingest'
 export { adminListConsultas } from './handlers/admin/list-consultas'
 export { adminGetStats } from './handlers/admin/stats'
 
+// Admin: upload de documentos + source paths
+export {
+  adminUploadDocument,
+  adminListDocuments,
+  adminDeleteDocument,
+  adminGetSourcePaths,
+  adminSetSourcePaths,
+  adminSyncSourcePath,
+} from './handlers/admin-documents'
+
 // Triggers
 export { onUserCreate } from './handlers/triggers/on-user-create'
 export { onFeedbackCreate } from './handlers/triggers/on-feedback-create'

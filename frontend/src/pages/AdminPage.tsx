@@ -2,11 +2,13 @@
  * AdminPage — painel administrativo para master admin.
  *
  * Rotas internas via hash:
- *  - #/admin          → este painel
- *  - #/admin/llm      → config de LLM global
- *  - #/admin/users    → usuários com config pessoal
- *  - #/admin/admins   → gerenciar admins
- *  - #/admin/audit    → auditoria (placeholder)
+ *  - #/admin             → este painel (tab LLM global)
+ *  - #/admin/llm         → LLM global
+ *  - #/admin/documents   → upload de documentos
+ *  - #/admin/paths       → configuração de pastas
+ *  - #/admin/users       → usuários com config pessoal
+ *  - #/admin/admins      → gerenciar admins
+ *  - #/admin/audit       → auditoria (placeholder)
  */
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
@@ -15,9 +17,11 @@ import { AdminSettings } from '@/components/AgentWidget/settings/AdminSettings'
 import { AgentAvatar } from '@/components/AgentWidget/AgentAvatar'
 import { AgentWidget } from '@/components/AgentWidget'
 import { useChatStore } from '@/stores/chatStore'
-import { LogOut, MessageCircle, Shield, Globe, Users, FileText } from 'lucide-react'
+import { DocumentUpload } from './admin/DocumentUpload'
+import { SourcePaths } from './admin/SourcePaths'
+import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity } from 'lucide-react'
 
-type AdminTab = 'llm' | 'users' | 'admins' | 'audit'
+type AdminTab = 'llm' | 'documents' | 'paths' | 'users' | 'admins' | 'audit'
 
 export function AdminPage() {
   const { user, signOut } = useAuth()
@@ -33,7 +37,9 @@ export function AdminPage() {
   }, [])
 
   useEffect(() => {
-    if (hash === '#/admin/users') setTab('users')
+    if (hash === '#/admin/documents') setTab('documents')
+    else if (hash === '#/admin/paths') setTab('paths')
+    else if (hash === '#/admin/users') setTab('users')
     else if (hash === '#/admin/admins') setTab('admins')
     else if (hash === '#/admin/audit') setTab('audit')
     else setTab('llm')
@@ -102,20 +108,41 @@ export function AdminPage() {
       <div style={mainLayoutStyle}>
         {/* Sidebar */}
         <aside style={sidebarStyle}>
-          <SidebarItem
-            icon={<Globe size={16} />}
-            label="LLM Global"
-            active={tab === 'llm'}
-            onClick={() => { window.location.hash = '#/admin'; setTab('llm') }}
-            hint="Define a LLM padrão para todos os usuários"
-          />
-          <SidebarItem
-            icon={<Users size={16} />}
-            label="Usuários"
-            active={tab === 'users'}
-            onClick={() => { window.location.hash = '#/admin/users'; setTab('users') }}
-            hint="Quem configurou LLM pessoal"
-          />
+          <SidebarSection title="Modelo de IA">
+            <SidebarItem
+              icon={<Globe size={16} />}
+              label="LLM Global"
+              active={tab === 'llm'}
+              onClick={() => { window.location.hash = '#/admin'; setTab('llm') }}
+              hint="Define a LLM padrão para todos os usuários"
+            />
+          </SidebarSection>
+
+          <SidebarSection title="Base de Conhecimento">
+            <SidebarItem
+              icon={<Upload size={16} />}
+              label="Upload de Documentos"
+              active={tab === 'documents'}
+              onClick={() => { window.location.hash = '#/admin/documents'; setTab('documents') }}
+              hint="Enviar PDFs, DOCX, MD para o corpus"
+            />
+            <SidebarItem
+              icon={<FolderTree size={16} />}
+              label="Pastas de Pesquisa"
+              active={tab === 'paths'}
+              onClick={() => { window.location.hash = '#/admin/paths'; setTab('paths') }}
+              hint="Configurar paths local / WebDAV / rede"
+            />
+          </SidebarSection>
+
+          <SidebarSection title="Administração">
+            <SidebarItem
+              icon={<Users size={16} />}
+              label="Usuários"
+              active={tab === 'users'}
+              onClick={() => { window.location.hash = '#/admin/users'; setTab('users') }}
+              hint="Quem configurou LLM pessoal"
+            />
           <SidebarItem
             icon={<Shield size={16} />}
             label="Administradores"
@@ -124,13 +151,14 @@ export function AdminPage() {
             hint="Gerenciar admins e masters"
           />
           <SidebarItem
-            icon={<FileText size={16} />}
+            icon={<Activity size={16} />}
             label="Auditoria"
             active={tab === 'audit'}
             onClick={() => { window.location.hash = '#/admin/audit'; setTab('audit') }}
             hint="Logs de uso (em breve)"
             disabled
           />
+          </SidebarSection>
         </aside>
 
         {/* Content */}
@@ -145,11 +173,40 @@ export function AdminPage() {
               <AdminSettings />
             </>
           )}
+          {tab === 'documents' && (
+            <>
+              <h2 style={pageTitleStyle}>Upload de Documentos</h2>
+              <p style={pageDescStyle}>
+                Envie documentos (PDF, DOCX, TXT, MD, HTML) para o corpus do Cofrito.
+                Após o upload, os documentos ficam disponíveis para consulta pela LLM.
+              </p>
+              <DocumentUpload />
+            </>
+          )}
+          {tab === 'paths' && (
+            <>
+              <h2 style={pageTitleStyle}>Pastas de Pesquisa</h2>
+              <p style={pageDescStyle}>
+                Configure os locais onde o Cofrito deve procurar documentos:
+                pastas locais, WebDAV, SMB/rede, Google Drive ou OneDrive.
+              </p>
+              <SourcePaths />
+            </>
+          )}
           {tab === 'users' && <UsersWithLLM />}
           {tab === 'admins' && <AdminsTab />}
           {tab === 'audit' && <AuditPlaceholder />}
         </main>
       </div>
+    </div>
+  )
+}
+
+function SidebarSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={sectionTitleStyle}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</div>
     </div>
   )
 }
@@ -453,6 +510,15 @@ const sidebarItemHintStyle: React.CSSProperties = {
   fontSize: 10,
   color: '#9ca3af',
   marginLeft: 24,
+}
+
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+  color: '#6b7280',
+  padding: '0 10px 6px',
 }
 
 const contentStyle: React.CSSProperties = {

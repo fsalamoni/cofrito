@@ -50,8 +50,13 @@ export function HomePage() {
           <div style={headerRightStyle}>
             {user ? (
               <>
-                {isAdminMaster && (
+                {isAdminMaster ? (
                   <a href="#/admin" style={adminLinkStyle} title="Painel de Administração">
+                    <Shield size={14} />
+                    <span>Admin</span>
+                  </a>
+                ) : (
+                  <a href="#/admin" style={userLinkStyle} title="Painel Administrativo (clique para tornar-se admin)">
                     <Shield size={14} />
                     <span>Admin</span>
                   </a>

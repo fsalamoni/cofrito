@@ -45,6 +45,21 @@ export const api = {
   // Bootstrap: primeiro user vira master admin
   bootstrapAdminMaster: () => httpsCallable<void, { ok: boolean; message: string }>(functions, 'bootstrapAdminMaster')(),
 
+  // Admin: upload e gestão de documentos
+  adminUploadDocument: (data: { fileName: string; contentBase64: string; mimeType: string; title?: string; type?: string; area?: string[]; tags?: string[] }) =>
+    httpsCallable<any, { ok: boolean; docId: string; path: string; message: string }>(functions, 'adminUploadDocument')(data),
+  adminListDocuments: () => httpsCallable<void, any[]>(functions, 'adminListDocuments')(),
+  adminDeleteDocument: (docId: string) =>
+    httpsCallable<string, { ok: boolean; removedChunks: number }>(functions, 'adminDeleteDocument')(docId),
+
+  // Admin: source paths
+  adminGetSourcePaths: () =>
+    httpsCallable<void, { paths: any[] }>(functions, 'adminGetSourcePaths')(),
+  adminSetSourcePaths: (paths: any[]) =>
+    httpsCallable<{ paths: any[] }, { ok: boolean; count: number }>(functions, 'adminSetSourcePaths')({ paths }),
+  adminSyncSourcePath: (pathId: string) =>
+    httpsCallable<string, { ok: boolean; pathId: string; message: string }>(functions, 'adminSyncSourcePath')(pathId),
+
   // Admin master: global LLM config
   adminGetGlobalLLM: () =>
     httpsCallable<void, any>(functions, 'adminGetGlobalLLM')(),
