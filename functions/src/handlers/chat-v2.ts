@@ -5,12 +5,11 @@
  * Ordem de prioridade:
  *  1. LLM global (admin-config/llm) — se existir, TODOS usam ele
  *  2. LLM pessoal (users/{uid}/llmConfig) — se existir, só esse user usa
- *  3. Fallback: GEMINI_API_KEY do ambiente (legado)
+ *  3. Fallback: GEMINI_API_KEY do ambiente (legado, opcional)
  *  4. Stub mode (sem API key)
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
-import { defineSecret } from 'firebase-functions/params'
 import { z } from 'zod'
 import { getFirestore } from 'firebase-admin/firestore'
 
@@ -23,8 +22,6 @@ import { getUserProfile } from '../services/profile'
 import { logAnalytics } from '../services/analytics'
 import { filterPII } from '../services/anonymizer'
 
-const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
-
 const ChatRequestSchema = z.object({
   conversationId: z.string().optional(),
   message: z.string().min(1).max(2000),
@@ -36,7 +33,7 @@ const ChatRequestSchema = z.object({
 })
 
 export const chatV2 = onCall(
-  { cors: true, enforceAppCheck: false, secrets: [GEMINI_API_KEY] },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para conversar com o Cofrito.')
@@ -121,19 +118,20 @@ export const chatV2 = onCall(
             systemPrompt,
             messages,
             config: effectiveConfig,
-            geminiApiKey: GEMINI_API_KEY.value(),
+            geminiApiKey: process.env.GEMINI_API_KEY || '',
           })
           content = out.content
           tokensUsed = out.tokens
         } catch (err: any) {
           logger.error('generateWithProvider falhou', { provider, model, err: err?.message })
           // Fallback para Gemini nativo (admin key)
-          if (GEMINI_API_KEY.value()) {
+          const adminKey = process.env.GEMINI_API_KEY
+          if (adminKey) {
             const out = await generateWithProvider({
               systemPrompt,
               messages,
-              config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: GEMINI_API_KEY.value()! },
-              geminiApiKey: GEMINI_API_KEY.value(),
+              config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: adminKey },
+              geminiApiKey: adminKey,
             })
             content = out.content
             tokensUsed = out.tokens
@@ -141,13 +139,13 @@ export const chatV2 = onCall(
             content = `⚠️ Erro ao chamar o provedor ${provider} (${model}): ${err?.message ?? 'desconhecido'}. Verifique sua API key em Configurações.`
           }
         }
-      } else if (GEMINI_API_KEY.value()) {
+      } else if (process.env.GEMINI_API_KEY) {
         // Fallback legacy: admin Gemini key
         const out = await generateWithProvider({
           systemPrompt,
           messages,
-          config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: GEMINI_API_KEY.value()! },
-          geminiApiKey: GEMINI_API_KEY.value(),
+          config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: process.env.GEMINI_API_KEY },
+          geminiApiKey: process.env.GEMINI_API_KEY,
         })
         content = out.content
         tokensUsed = out.tokens
