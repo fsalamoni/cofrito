@@ -41,11 +41,12 @@ jobs:
           npm install -g firebase-tools@13
           firebase use default --token "$FIREBASE_TOKEN"
 
-      - name: Validar GEMINI_API_KEY
+      - name: Verificar GEMINI_API_KEY (opcional)
         run: |
           if [ -z "$GEMINI_API_KEY" ]; then
-            echo "::error::GEMINI_API_KEY não está configurada. Adicione em Settings → Secrets."
-            exit 1
+            echo "::warning::GEMINI_API_KEY não está configurada. O LLM vai operar em modo stub (sem Gemini). Site funciona normalmente."
+          else
+            echo "✓ GEMINI_API_KEY configurada (LLM real ativo)"
           fi
 
       - name: Deploy (functions + firestore + hosting + storage)
