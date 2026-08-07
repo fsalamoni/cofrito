@@ -10,18 +10,18 @@
  *  - Resize pelo canto inferior direito (alça SE)
  *  - Persistência de posição E tamanho em localStorage
  *  - Minimizar volta para FAB (mantém na posição atual)
- *  - Fechar também volta para FAB
- *  - Quando aberto, pode ser arrastado para qualquer canto
+ *  - FAB arrastável (clique abre, arrasta move)
+ *  - Histórico de conversas no sidebar
+ *
+ * NÃO inclui configurações: settings e admin ficam em páginas dedicadas
+ * (acessadas via header do site em /settings e /admin).
  */
 import { useEffect, useRef, useState } from 'react'
-import { X, GripVertical, History, MessageSquarePlus, Settings as SettingsIcon, ChevronLeft, MoreVertical, Shield, ExternalLink } from 'lucide-react'
+import { X, GripVertical, History, MessageSquarePlus, ChevronLeft } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { ChatPanel } from './ChatPanel'
 import { AgentAvatar } from './AgentAvatar'
 import { ConversationHistory } from './ConversationHistory'
-import { LLMSettings } from './settings/LLMSettings'
-import { AdminSettings } from './settings/AdminSettings'
-import { useIsAdminMaster } from '@/hooks/useAdminStatus'
 
 interface AgentWidgetProps {
   tenant?: string
@@ -51,13 +51,10 @@ export function AgentWidget({
   const open = useChatStore((s) => s.open)
   const close = useChatStore((s) => s.close)
   const restart = useChatStore((s) => s.startNewConversation)
-  const isAdminMaster = useIsAdminMaster()
 
   const [pos, setPos] = useState<Position>(() => loadPos())
   const [size, setSize] = useState<Size>(() => loadSize())
   const [showHistory, setShowHistory] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showMore, setShowMore] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [resizing, setResizing] = useState(false)
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null)
@@ -187,7 +184,6 @@ export function AgentWidget({
         }}
         onPointerUp={(e) => {
           if (dragging) {
-            // Detectar se foi um click (sem movimento significativo)
             const moved = Math.abs(e.clientX - (dragRef.current?.sx ?? e.clientX)) > 4
               || Math.abs(e.clientY - (dragRef.current?.sy ?? e.clientY)) > 4
             setDragging(false)
@@ -226,7 +222,6 @@ export function AgentWidget({
         >
           <AgentAvatar size={FAB_SIZE} />
         </div>
-        {/* Hint visual: cursor muda para grab */}
         <div
           style={{
             position: 'absolute',
@@ -254,8 +249,7 @@ export function AgentWidget({
   }
 
   // Painel aberto (com histórico opcional)
-  const showSidebar = showHistory || showSettings
-  const panelWidth = showSidebar ? Math.max(size.w, 700) : size.w
+  const panelWidth = showHistory ? Math.max(size.w, 700) : size.w
 
   return (
     <div
@@ -310,20 +304,12 @@ export function AgentWidget({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           <button
-            onClick={(e) => { e.stopPropagation(); setShowHistory((v) => !v); setShowSettings(false) }}
+            onClick={(e) => { e.stopPropagation(); setShowHistory((v) => !v) }}
             title="Histórico de conversas"
             aria-label="Histórico"
             style={{ ...iconButtonStyle, ...(showHistory ? iconButtonActiveStyle : {}) }}
           >
             <History size={16} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowSettings((v) => !v); setShowHistory(false) }}
-            title="Configurações"
-            aria-label="Configurações"
-            style={{ ...iconButtonStyle, ...(showSettings ? iconButtonActiveStyle : {}) }}
-          >
-            <SettingsIcon size={16} />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); restart() }}
@@ -332,14 +318,6 @@ export function AgentWidget({
             style={iconButtonStyle}
           >
             <MessageSquarePlus size={16} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowMore((v) => !v) }}
-            title="Mais opções"
-            aria-label="Mais opções"
-            style={{ ...iconButtonStyle, ...(showMore ? iconButtonActiveStyle : {}) }}
-          >
-            <MoreVertical size={16} />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); close() }}
@@ -356,41 +334,12 @@ export function AgentWidget({
             <GripVertical size={14} />
           </div>
         </div>
-        {/* More menu dropdown */}
-        {showMore && (
-          <>
-            <div
-              style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
-              onClick={() => setShowMore(false)}
-            />
-            <div style={moreMenuStyle}>
-              <button
-                onClick={() => { window.location.hash = '#/settings'; setShowMore(false); close() }}
-                style={moreMenuItemStyle}
-              >
-                <SettingsIcon size={14} />
-                <span>Página de Configurações</span>
-                <ExternalLink size={11} style={{ marginLeft: 'auto', opacity: 0.4 }} />
-              </button>
-              {isAdminMaster && (
-                <button
-                  onClick={() => { window.location.hash = '#/admin'; setShowMore(false); close() }}
-                  style={{ ...moreMenuItemStyle, color: '#1a4d8f' }}
-                >
-                  <Shield size={14} />
-                  <span>Painel Administrativo</span>
-                  <ExternalLink size={11} style={{ marginLeft: 'auto', opacity: 0.4 }} />
-                </button>
-              )}
-            </div>
-          </>
-        )}
       </div>
 
       {/* Body: 2 colunas (sidebar + chat) */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', background: '#f8fafc' }}>
-        {/* Sidebar condicional */}
-        {showSidebar && (
+        {/* Sidebar de histórico */}
+        {showHistory && (
           <div style={{
             width: 280,
             flexShrink: 0,
@@ -407,14 +356,10 @@ export function AgentWidget({
               justifyContent: 'space-between',
             }}>
               <strong style={{ fontSize: 13, color: '#0f172a' }}>
-                {showHistory
-                  ? 'Conversas'
-                  : isAdminMaster
-                    ? 'Administração'
-                    : 'Configurações'}
+                Conversas
               </strong>
               <button
-                onClick={() => { setShowHistory(false); setShowSettings(false) }}
+                onClick={() => { setShowHistory(false) }}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   padding: 4, color: '#6b7280', display: 'flex',
@@ -425,11 +370,7 @@ export function AgentWidget({
               </button>
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
-              {showHistory ? (
-                <ConversationHistory onClose={() => setShowHistory(false)} />
-              ) : showSettings ? (
-                isAdminMaster ? <AdminSettings /> : <LLMSettings />
-              ) : null}
+              <ConversationHistory onClose={() => setShowHistory(false)} />
             </div>
           </div>
         )}
@@ -500,37 +441,6 @@ const iconButtonStyle: React.CSSProperties = {
 
 const iconButtonActiveStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.35)',
-}
-
-const moreMenuStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: 60,
-  right: 12,
-  background: '#ffffff',
-  borderRadius: 10,
-  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
-  padding: 4,
-  minWidth: 240,
-  zIndex: 10001,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 2,
-}
-
-const moreMenuItemStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  background: 'transparent',
-  border: 'none',
-  padding: '8px 12px',
-  borderRadius: 6,
-  fontSize: 13,
-  color: '#0f172a',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  textAlign: 'left',
-  width: '100%',
 }
 
 const keyframesCss = `
