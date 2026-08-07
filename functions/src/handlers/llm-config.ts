@@ -13,7 +13,8 @@ import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../
 
 // ── USER: get/set/delete config pessoal (campo no user doc) ───────────────
 
-export const getLLMConfig = onCall(async (request) => {
+export const getLLMConfig = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const db = getFirestore()
   const snap = await db.doc(`users/${request.auth.uid}`).get()
@@ -34,7 +35,8 @@ export const getLLMConfig = onCall(async (request) => {
   }
 })
 
-export const setLLMConfig = onCall(async (request) => {
+export const setLLMConfig = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const cfg = request.data as LLMConfigLike
   if (!cfg || !cfg.provider || !cfg.model) {
@@ -54,7 +56,8 @@ export const setLLMConfig = onCall(async (request) => {
   return { ok: true }
 })
 
-export const deleteLLMConfig = onCall(async (request) => {
+export const deleteLLMConfig = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const db = getFirestore()
   await db.doc(`users/${request.auth.uid}`).set(
@@ -66,7 +69,8 @@ export const deleteLLMConfig = onCall(async (request) => {
 
 // ── MASTER ADMIN: config global ──────────────────────────────────────────
 
-export const adminGetGlobalLLM = onCall(async (request) => {
+export const adminGetGlobalLLM = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const db = getFirestore()
@@ -84,7 +88,8 @@ export const adminGetGlobalLLM = onCall(async (request) => {
   }
 })
 
-export const adminSetGlobalLLM = onCall(async (request) => {
+export const adminSetGlobalLLM = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const cfg = request.data as LLMConfigLike | null
@@ -107,7 +112,8 @@ export const adminSetGlobalLLM = onCall(async (request) => {
 
 // ── Listagem de modelos (chamada pelo front) ─────────────────────────────
 
-export const listLLMModels = onCall(async (request) => {
+export const listLLMModels = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const { provider, apiKey, baseUrl } = request.data as { provider: LLMProvider; apiKey: string; baseUrl?: string }
   if (!provider) throw new HttpsError('invalid-argument', 'provider obrigatório')
@@ -122,7 +128,8 @@ export const listLLMModels = onCall(async (request) => {
 
 // ── Admin: gerenciar admins (grant/revoke/list) ─────────────────────────
 
-export const adminListAdmins = onCall(async (request) => {
+export const adminListAdmins = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const db = getFirestore()
@@ -130,7 +137,8 @@ export const adminListAdmins = onCall(async (request) => {
   return snap.docs.map((d) => ({ uid: d.id, ...d.data() }))
 })
 
-export const adminGrantAdmin = onCall(async (request) => {
+export const adminGrantAdmin = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const { email, role } = request.data as { email: string; role: 'admin' | 'master' }
@@ -160,7 +168,8 @@ export const adminGrantAdmin = onCall(async (request) => {
   return { ok: true, uid: userDoc.id }
 })
 
-export const adminRevokeAdmin = onCall(async (request) => {
+export const adminRevokeAdmin = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const uid = request.data as string
@@ -172,7 +181,8 @@ export const adminRevokeAdmin = onCall(async (request) => {
   return { ok: true }
 })
 
-export const adminListUserLLM = onCall(async (request) => {
+export const adminListUserLLM = onCall({ cors: true },
+  async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const db = getFirestore()

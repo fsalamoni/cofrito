@@ -68,6 +68,7 @@ export function AdminPage() {
           <p style={{ color: '#6b7280', maxWidth: 480, textAlign: 'center', marginTop: 8 }}>
             Este painel é exclusivo para usuários com permissão de <strong>master admin</strong>.
           </p>
+          <ManualAdminGuide uid={user.uid} email={user.email ?? ''} />
           <BootstrapButton />
           <a href="/" style={backLinkStyle}>← Voltar ao site</a>
         </div>
@@ -323,6 +324,70 @@ function AuditPlaceholder() {
   )
 }
 
+function ManualAdminGuide({ uid, email }: { uid: string; email: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ marginTop: 24, maxWidth: 560, width: '100%' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: 'transparent',
+          border: '1px dashed #d1d5db',
+          color: '#6b7280',
+          padding: '8px 14px',
+          borderRadius: 6,
+          fontSize: 12,
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+        }}
+      >
+        {open ? '▼' : '▶'} Como criar o admin manualmente (Firestore Console)
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 8,
+          padding: 14,
+          background: '#f9fafb',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          textAlign: 'left',
+          fontSize: 12,
+          color: '#374151',
+          lineHeight: 1.6,
+        }}>
+          <p style={{ margin: '0 0 10px', fontWeight: 600, color: '#dc2626' }}>
+            ⚠️ O doc correto é <code>admins/{uid}</code> (NÃO <code>users/{uid}</code>).
+          </p>
+          <ol style={{ margin: '0 0 10px', paddingLeft: 18 }}>
+            <li>Vá em <strong>Firestore Console → admins</strong> (crie a collection se não existir)</li>
+            <li>Clique em <strong>+ Adicionar documento</strong></li>
+            <li>ID do documento: <code style={codeStyle}>{uid}</code></li>
+            <li>Adicione estes campos:</li>
+          </ol>
+          <pre style={jsonStyle}>
+{`{
+  "uid": "${uid}",
+  "email": "${email}",
+  "displayName": "Seu nome",
+  "role": "master",
+  "active": true,
+  "grantedAt": <timestamp atual>,
+  "grantedBy": "manual"
+}`}
+          </pre>
+          <p style={{ margin: '0 0 8px' }}>
+            <strong>Importante</strong>: reverta o <code>role</code> em <code>users/{uid.slice(0, 12)}…</code> para
+            <code> &quot;externo&quot;</code> (o que estava antes). Apenas o doc em <code>admins</code> define master.
+          </p>
+          <p style={{ margin: '0', fontSize: 11, color: '#6b7280' }}>
+            Após criar, faça <strong>hard refresh</strong> (Ctrl+Shift+R) na página.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BootstrapButton() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -431,6 +496,25 @@ const inputInlineStyle: React.CSSProperties = {
   borderRadius: 4,
   fontFamily: 'inherit',
   outline: 'none',
+}
+
+const codeStyle: React.CSSProperties = {
+  background: '#e5e7eb',
+  padding: '1px 5px',
+  borderRadius: 3,
+  fontSize: 11,
+  fontFamily: 'ui-monospace, monospace',
+}
+
+const jsonStyle: React.CSSProperties = {
+  background: '#1a4d8f',
+  color: '#e0e7ff',
+  padding: 10,
+  borderRadius: 6,
+  fontSize: 11,
+  fontFamily: 'ui-monospace, monospace',
+  overflow: 'auto',
+  margin: '0 0 10px',
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────

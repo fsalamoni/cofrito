@@ -7,7 +7,8 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { getUserProfile as getProfileFromDB } from '../services/profile'
 import { z } from 'zod'
 
-export const getProfile = onCall(async (request) => {
+export const getProfile = onCall(
+  { cors: true },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }
@@ -28,7 +29,8 @@ const UpdateProfileSchema = z.object({
     .optional(),
 })
 
-export const updateProfile = onCall(async (request) => {
+export const updateProfile = onCall(
+  { cors: true },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }
