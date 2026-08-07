@@ -12,7 +12,6 @@ pnpm-debug.log*
 # Build artifacts
 dist/
 build/
-lib/
 .next/
 out/
 .tsbuildinfo
