@@ -122,7 +122,9 @@ jobs:
         run: |
           cd functions
           npm install --no-audit --no-fund
-          npm run validate:corpus
+          npm run build
+          cd ..
+          node functions/lib/scripts/validate-corpus.js data/raw
 
   all-jobs-pass:
     name: All jobs

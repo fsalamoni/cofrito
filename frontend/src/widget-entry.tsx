@@ -77,7 +77,7 @@ if (document.readyState === 'loading') {
 }
 
 // Expõe API programática
-;(window as any).Cofrito = {
+(window as any).Cofrito = {
   open: () => {
     document.querySelector('cofrito-widget')?.dispatchEvent(new CustomEvent('cofrito:open'))
   },
