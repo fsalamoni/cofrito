@@ -132,7 +132,7 @@ export function AgentWidget({
       resizeRef.current = null
     }
     try {
-      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId)
     } catch { /* */ }
   }
 

@@ -34,6 +34,7 @@ export function ConversationHistory({ onClose: _onClose }: Props) {
   useEffect(() => {
     if (!user) return
     loadConversations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   async function loadConversations() {

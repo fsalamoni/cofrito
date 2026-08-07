@@ -47,6 +47,7 @@ export function LLMSettings() {
       setTemperature(userConfig.temperature ?? 0.3)
       setMaxTokens(userConfig.maxTokens ?? 2000)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userConfig?.provider, userConfig?.model])
 
   // Carregar modelos quando provider muda
@@ -57,6 +58,7 @@ export function LLMSettings() {
     if (!model && providerInfo.models.length > 0) {
       setModel(providerInfo.models[0].id)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider])
 
   async function handleLoadModels() {
@@ -167,7 +169,7 @@ export function LLMSettings() {
           onChange={(e) => setProvider(e.target.value as LLMProvider)}
           style={inputStyle}
         >
-          {PROVIDERS.map((p) => (
+          {PROVIDERS.map((p: { id: string; label: string }) => (
             <option key={p.id} value={p.id}>
               {p.label}
             </option>
