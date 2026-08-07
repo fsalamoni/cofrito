@@ -2,36 +2,35 @@
 /**
  * Handlers de LLM Config — user + admin master.
  *
- * User: get/set/delete em `users/{uid}/llmConfig`
- * Master: get/set/delete em `admin-config/llm` (global, esconde user)
- *
- * O backend NUNCA devolve a API key ao cliente (criptografada no client-side,
- * e o backend confia no que o cliente envia — o Firestore Rules protege o doc).
+ * Storage:
+ *  - user: campo `llmConfig` em `users/{uid}` (subcollection path com 3 segments é inválido)
+ *  - master: doc `admin-config/llm` (global, esconde user)
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { assertAdminMaster } from '../middleware/auth'
 import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../services/llm-providers'
 
-// ── USER: get/set/delete config pessoal ───────────────────────────────────
+// ── USER: get/set/delete config pessoal (campo no user doc) ───────────────
 
 export const getLLMConfig = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const db = getFirestore()
-  const snap = await db.doc(`users/${request.auth.uid}/llmConfig`).get()
+  const snap = await db.doc(`users/${request.auth.uid}`).get()
   if (!snap.exists) return null
   const data = snap.data() as any
-  // Nunca devolve a API key completa
+  const cfg = data.llmConfig
+  if (!cfg) return null
   return {
-    provider: data.provider,
-    model: data.model,
-    baseUrl: data.baseUrl,
-    temperature: data.temperature,
-    maxTokens: data.maxTokens,
+    provider: cfg.provider,
+    model: cfg.model,
+    baseUrl: cfg.baseUrl,
+    temperature: cfg.temperature,
+    maxTokens: cfg.maxTokens,
     scope: 'user',
-    hasApiKey: !!data.apiKey,
-    apiKeyMasked: data.apiKey ? maskKey(data.apiKey) : '',
-    updatedAt: data.updatedAt,
+    hasApiKey: !!cfg.apiKey,
+    apiKeyMasked: cfg.apiKey ? maskKey(cfg.apiKey) : '',
+    updatedAt: cfg.updatedAt,
   }
 })
 
@@ -42,11 +41,13 @@ export const setLLMConfig = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'provider e model são obrigatórios')
   }
   const db = getFirestore()
-  await db.doc(`users/${request.auth.uid}/llmConfig`).set(
+  await db.doc(`users/${request.auth.uid}`).set(
     {
-      ...cfg,
-      scope: 'user',
-      updatedAt: FieldValue.serverTimestamp(),
+      llmConfig: {
+        ...cfg,
+        scope: 'user',
+        updatedAt: FieldValue.serverTimestamp(),
+      },
     },
     { merge: true },
   )
@@ -56,7 +57,10 @@ export const setLLMConfig = onCall(async (request) => {
 export const deleteLLMConfig = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const db = getFirestore()
-  await db.doc(`users/${request.auth.uid}/llmConfig`).delete()
+  await db.doc(`users/${request.auth.uid}`).set(
+    { llmConfig: FieldValue.delete() },
+    { merge: true },
+  )
   return { ok: true }
 })
 
@@ -176,14 +180,13 @@ export const adminListUserLLM = onCall(async (request) => {
   const usersSnap = await db.collection('users').get()
   const out: Array<{ uid: string; displayName: string; email: string; config: any }> = []
   for (const userDoc of usersSnap.docs) {
-    const llmSnap = await db.doc(`users/${userDoc.id}/llmConfig`).get()
-    if (llmSnap.exists) {
-      const userData = userDoc.data() as any
+    const data = userDoc.data() as any
+    if (data.llmConfig) {
       out.push({
         uid: userDoc.id,
-        displayName: userData.displayName ?? '',
-        email: userData.email ?? '',
-        config: { ...llmSnap.data(), apiKey: llmSnap.data()?.apiKey ? maskKey(llmSnap.data()!.apiKey) : '' },
+        displayName: data.displayName ?? '',
+        email: data.email ?? '',
+        config: { ...data.llmConfig, apiKey: data.llmConfig.apiKey ? maskKey(data.llmConfig.apiKey) : '' },
       })
     }
   }

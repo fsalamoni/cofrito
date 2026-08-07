@@ -36,7 +36,7 @@ service cloud.firestore {
     }
 
     function isValidUserUpdate() {
-      let allowed = ['displayName', 'preferences', 'lastSeen', 'unidade', 'areasAtuacao'];
+      let allowed = ['displayName', 'preferences', 'lastSeen', 'unidade', 'areasAtuacao', 'llmConfig'];
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(allowed);
     }
@@ -91,11 +91,6 @@ service cloud.firestore {
         match /messages/{messageId} {
           allow read, write: if isOwner(uid);
         }
-      }
-
-      // LLM Config (pessoal)
-      match /llmConfig {
-        allow read, write: if isOwner(uid);
       }
 
       // Feedback

@@ -59,10 +59,10 @@ export function AdminPage() {
           <h1 style={{ fontSize: 24, color: '#0f172a', marginTop: 16 }}>
             Acesso restrito a administradores master
           </h1>
-          <p style={{ color: '#6b7280', maxWidth: 480, textAlign: 'center' }}>
+          <p style={{ color: '#6b7280', maxWidth: 480, textAlign: 'center', marginTop: 8 }}>
             Este painel é exclusivo para usuários com permissão de <strong>master admin</strong>.
-            Se você precisa de acesso, solicite ao administrador master da plataforma.
           </p>
+          <BootstrapButton />
           <a href="/" style={backLinkStyle}>← Voltar ao site</a>
         </div>
       </div>
@@ -266,6 +266,41 @@ function AuditPlaceholder() {
   )
 }
 
+function BootstrapButton() {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+
+  async function handleBootstrap() {
+    if (!confirm('Tornar-se master admin? (Disponível apenas se nenhum master existir ainda)')) return
+    setLoading(true)
+    setError(null)
+    try {
+      const { api } = await import('@/lib/api')
+      await api.bootstrapAdminMaster()
+      setSuccess(true)
+      setTimeout(() => window.location.reload(), 1500)
+    } catch (err: any) {
+      setError(err.message ?? 'Erro')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (success) {
+    return <p style={{ color: '#059669', fontWeight: 500, marginTop: 16 }}>✓ Pronto! Recarregando...</p>
+  }
+
+  return (
+    <div style={{ marginTop: 16, textAlign: 'center' }}>
+      <button onClick={handleBootstrap} disabled={loading} style={bootstrapBtnStyle}>
+        {loading ? 'Verificando...' : '👑 Tornar-me o primeiro master admin'}
+      </button>
+      {error && <p style={{ color: '#dc2626', fontSize: 12, marginTop: 8, maxWidth: 400 }}>{error}</p>}
+    </div>
+  )
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────
 
 const containerStyle: React.CSSProperties = {
@@ -456,4 +491,17 @@ const userProviderBadgeStyle: React.CSSProperties = {
   color: '#1a4d8f',
   borderRadius: 6,
   fontSize: 12,
+}
+
+const bootstrapBtnStyle: React.CSSProperties = {
+  background: 'linear-gradient(135deg, #1a4d8f 0%, #5B7CFA 100%)',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: 8,
+  padding: '10px 20px',
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  boxShadow: '0 4px 12px rgba(26, 77, 143, 0.3)',
 }

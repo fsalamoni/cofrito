@@ -60,6 +60,9 @@ export {
   adminListUserLLM,
 } from './handlers/llm-config'
 
+// Bootstrap: primeiro user vira master
+export { bootstrapAdminMaster } from './handlers/bootstrap-admin'
+
 // Admin
 export { adminReingest } from './handlers/admin/reingest'
 export { adminListConsultas } from './handlers/admin/list-consultas'

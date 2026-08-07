@@ -42,6 +42,9 @@ export const api = {
     httpsCallable<LLMConfig, any>(functions, 'setLLMConfig')(config),
   deleteLLMConfig: () => httpsCallable<void, void>(functions, 'deleteLLMConfig')(),
 
+  // Bootstrap: primeiro user vira master admin
+  bootstrapAdminMaster: () => httpsCallable<void, { ok: boolean; message: string }>(functions, 'bootstrapAdminMaster')(),
+
   // Admin master: global LLM config
   adminGetGlobalLLM: () =>
     httpsCallable<void, any>(functions, 'adminGetGlobalLLM')(),
