@@ -6,7 +6,7 @@
  *    (só funciona se NENHUM master existir ainda)
  *
  *  - grantAdminByEmail: cria um admin doc para um email específico.
- *    Protegido por MASTER_BOOTSTRAP_SECRET (env var ou functions secret).
+ *    Protegido por MASTER_BOOTSTRAP_SECRET (env var).
  *    Use este endpoint em emergency setup (curl) para garantir o master.
  *    Exemplo:
  *      curl -X POST .../grantAdminByEmail \
@@ -16,10 +16,6 @@
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
-import { defineSecret } from 'firebase-functions/params'
-
-// Segredo configurado no Firebase Secret Manager (opcional, mas recomendado)
-const BOOTSTRAP_SECRET = defineSecret('MASTER_BOOTSTRAP_SECRET')
 
 // ── bootstrapAdminMaster (autenticado) ───────────────────────────────────
 
@@ -74,7 +70,7 @@ export const bootstrapAdminMaster = onCall(async (request) => {
  *   firebase functions:secrets:set MASTER_BOOTSTRAP_SECRET
  */
 export const grantAdminByEmail = onRequest(
-  { secrets: [BOOTSTRAP_SECRET], cors: true },
+  { cors: true },
   async (req, res) => {
     // CORS
     res.set('Access-Control-Allow-Origin', '*')
