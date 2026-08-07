@@ -4,14 +4,15 @@
  * Tabs:
  *  1. LLM Global — define o LLM padrão para todos os usuários
  *  2. Administradores — lista, concede e revoga admins
- *  3. Auditoria — acesso a logs (placeholder)
  */
 import { useState, useEffect } from 'react'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { firestore } from '@/lib/firebase'
 import { useAuth } from '@/hooks/useAuth'
 import { useLLMConfig } from '@/hooks/useLLMConfig'
-import { Users, Globe, Shield, Trash2, Plus, AlertCircle, Check, X, Loader2 } from 'lucide-react'
+import { PROVIDERS, getProviderInfo } from '@/lib/providers'
+import { Users, Globe, Shield, Trash2, Plus, AlertCircle, Check, X, Loader2, Database } from 'lucide-react'
+import type { LLMProvider, LLMConfig, LLMModelInfo } from '@/types'
 
 type Tab = 'llm' | 'admins'
 
@@ -111,16 +112,14 @@ export function AdminSettings() {
             </span>
           </div>
 
-          {globalConfig ? (
-            <>
-              <div style={currentConfigStyle}>
-                <div style={labelStyle}>Configuração global ativa</div>
-                <div style={{ fontSize: 13, fontWeight: 500, marginTop: 4 }}>
-                  {globalConfig.provider} / {globalConfig.model}
-                </div>
-                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
-                  Atualizado: {globalConfig.updatedAt ? new Date(globalConfig.updatedAt).toLocaleString('pt-BR') : '-'}
-                </div>
+          {globalConfig && (
+            <div style={currentConfigStyle}>
+              <div style={labelStyle}>Configuração global ativa</div>
+              <div style={{ fontSize: 13, fontWeight: 500, marginTop: 4 }}>
+                {globalConfig.provider} / {globalConfig.model}
+              </div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+                Atualizado: {globalConfig.updatedAt ? new Date(globalConfig.updatedAt).toLocaleString('pt-BR') : '-'}
               </div>
               <button
                 onClick={() => {
@@ -133,12 +132,6 @@ export function AdminSettings() {
                 <Trash2 size={12} />
                 Remover global
               </button>
-            </>
-          ) : (
-            <div style={noGlobalStyle}>
-              <span style={{ fontSize: 11, color: '#6b7280' }}>
-                Nenhuma configuração global. Usuários podem configurar seu próprio LLM.
-              </span>
             </div>
           )}
 
@@ -148,10 +141,10 @@ export function AdminSettings() {
             <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
               {globalConfig ? 'Atualizar configuração global' : 'Definir configuração global'}
             </div>
-            <GlobalLLMForm
+            <GlobalLLMFormWithSelect
               initial={globalConfig}
               onSave={async (cfg) => {
-                await saveGlobalConfig(cfg)
+                await saveGlobalConfig({ ...cfg, scope: 'global' })
               }}
             />
           </div>
@@ -244,29 +237,92 @@ function TabButton({ active, onClick, icon, children }: { active: boolean; onCli
   )
 }
 
-function GlobalLLMForm({
+/**
+ * GlobalLLMFormWithSelect — Formulário com seletor de PROVEDOR e LISTA de modelos.
+ * Usa o catálogo completo de PROVIDERS (988 modelos em 17 provedores).
+ */
+function GlobalLLMFormWithSelect({
   initial,
   onSave,
 }: {
-  initial: { provider: string; model: string; apiKey: string; baseUrl?: string; temperature?: number; maxTokens?: number } | null
-  onSave: (cfg: any) => Promise<void>
+  initial: Partial<LLMConfig> | null
+  onSave: (cfg: LLMConfig) => Promise<void>
 }) {
-  const [provider, setProvider] = useState<string>(initial?.provider ?? 'google')
+  const [provider, setProvider] = useState<LLMProvider>((initial?.provider as LLMProvider) ?? 'google')
   const [model, setModel] = useState<string>(initial?.model ?? 'gemini-2.5-flash')
   const [apiKey, setApiKey] = useState<string>(initial?.apiKey ?? '')
   const [baseUrl, setBaseUrl] = useState<string>(initial?.baseUrl ?? '')
+  const [temperature, setTemperature] = useState<number>(initial?.temperature ?? 0.3)
+  const [maxTokens, setMaxTokens] = useState<number>(initial?.maxTokens ?? 2000)
+  const [showKey, setShowKey] = useState(false)
+  const [models, setModels] = useState<LLMModelInfo[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
 
+  const providerInfo = getProviderInfo(provider)
+
+  // Quando muda o provider, atualiza os modelos
+  useEffect(() => {
+    if (!providerInfo) return
+    setModels(providerInfo.models)
+    if (!model && providerInfo.models.length > 0) {
+      setModel(providerInfo.models[0].id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider])
+
+  async function handleLoadModels() {
+    if (!apiKey && provider !== 'ollama') {
+      setFeedback({ ok: false, msg: 'Insira a API key para listar modelos do provider' })
+      return
+    }
+    setLoadingModels(true)
+    setFeedback(null)
+    try {
+      const { api } = await import('@/lib/api')
+      const result = await api.listLLMModels(provider, apiKey, baseUrl || providerInfo?.defaultBaseUrl)
+      if (result.data && result.data.length > 0) {
+        setModels(
+          result.data.map((m) => ({
+            id: m.id,
+            name: m.name ?? m.id,
+            contextWindow: m.contextWindow,
+          })),
+        )
+        setFeedback({ ok: true, msg: `${result.data.length} modelos carregados do provider` })
+      } else {
+        setFeedback({ ok: false, msg: 'Nenhum modelo retornado. Usando catálogo local.' })
+      }
+    } catch (err: any) {
+      setFeedback({ ok: false, msg: err.message ?? 'Erro ao listar. Usando catálogo local.' })
+    } finally {
+      setLoadingModels(false)
+    }
+  }
+
   async function handleSave() {
-    if (!apiKey) {
-      setFeedback({ ok: false, msg: 'API key obrigatória' })
+    if (!apiKey && provider !== 'ollama') {
+      setFeedback({ ok: false, msg: 'API key é obrigatória' })
+      return
+    }
+    if (!model) {
+      setFeedback({ ok: false, msg: 'Selecione um modelo' })
       return
     }
     setSaving(true)
+    setFeedback(null)
     try {
-      await onSave({ provider, model, apiKey, baseUrl: baseUrl || undefined })
-      setFeedback({ ok: true, msg: 'Config global salva' })
+      await onSave({
+        provider,
+        model,
+        apiKey,
+        baseUrl: baseUrl || undefined,
+        temperature,
+        maxTokens,
+        scope: 'global',
+      } as LLMConfig)
+      setFeedback({ ok: true, msg: 'Configuração global salva!' })
     } catch (err: any) {
       setFeedback({ ok: false, msg: err.message ?? 'Erro' })
     } finally {
@@ -276,44 +332,198 @@ function GlobalLLMForm({
 
   return (
     <div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input
+      {/* PROVEDOR */}
+      <div style={formFieldStyle}>
+        <label style={formLabelStyle}>
+          Provedor
+          {providerInfo?.apiKeyUrl && (
+            <a
+              href={providerInfo.apiKeyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={extLinkStyle}
+            >
+              Obter key <Database size={9} style={{ verticalAlign: 'middle' }} />
+            </a>
+          )}
+        </label>
+        <select
           value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-          placeholder="provider (google, openai...)"
-          style={inputStyle}
-        />
-        <input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="modelo (gemini-2.5-flash...)"
-          style={inputStyle}
-        />
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="API key (será criptografada)"
-          style={inputStyle}
-        />
-        <input
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="baseUrl (opcional)"
-          style={inputStyle}
-        />
-        <button onClick={handleSave} disabled={saving} style={{ ...grantBtnStyle, justifyContent: 'center' }}>
-          {saving ? <Loader2 size={12} className="cofrito-spin" /> : <Shield size={12} />}
-          Salvar como global
-        </button>
-        {feedback && (
-          <div style={{ fontSize: 11, color: feedback.ok ? '#065f46' : '#991b1b' }}>
-            {feedback.msg}
+          onChange={(e) => setProvider(e.target.value as LLMProvider)}
+          style={formSelectStyle}
+        >
+          {PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label} ({p.models.length || '∞'} modelos)
+            </option>
+          ))}
+        </select>
+        {providerInfo && (
+          <div style={formHintStyle}>{providerInfo.description}</div>
+        )}
+      </div>
+
+      {/* API KEY */}
+      <div style={formFieldStyle}>
+        <label style={formLabelStyle}>API Key</label>
+        <div style={{ position: 'relative' }}>
+          <input
+            type={showKey ? 'text' : 'password'}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={provider === 'ollama' ? '(não necessária para Ollama local)' : 'sk-...'}
+            style={{ ...formInputStyle, paddingRight: 36 }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            onClick={() => setShowKey((v) => !v)}
+            style={eyeBtnStyle}
+            tabIndex={-1}
+          >
+            {showKey ? '🙈' : '👁'}
+          </button>
+        </div>
+      </div>
+
+      {/* BASE URL */}
+      {(provider === 'custom' || providerInfo?.defaultBaseUrl) && (
+        <div style={formFieldStyle}>
+          <label style={formLabelStyle}>
+            Endpoint (Base URL)
+            {providerInfo?.defaultBaseUrl && (
+              <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>
+                · padrão: {providerInfo.defaultBaseUrl}
+              </span>
+            )}
+          </label>
+          <input
+            type="text"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={providerInfo?.defaultBaseUrl ?? 'https://api.example.com/v1'}
+            style={formInputStyle}
+            spellCheck={false}
+          />
+        </div>
+      )}
+
+      {/* MODELO */}
+      <div style={formFieldStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <label style={formLabelStyle}>
+            Modelo
+            {models.length > 0 && (
+              <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>
+                · {models.length} disponíveis
+              </span>
+            )}
+          </label>
+          {providerInfo?.supportsModelListing && (
+            <button
+              type="button"
+              onClick={handleLoadModels}
+              disabled={loadingModels || (!apiKey && provider !== 'ollama')}
+              style={smallBtnStyle}
+              title="Buscar modelos do provider via API"
+            >
+              {loadingModels ? <Loader2 size={10} className="cofrito-spin" /> : '↻'}
+              Buscar do provider
+            </button>
+          )}
+        </div>
+        {models.length > 0 ? (
+          <select value={model} onChange={(e) => setModel(e.target.value)} style={formSelectStyle}>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name ?? m.id}
+                {m.contextWindow ? ` · ${formatCtx(m.contextWindow)}` : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="gemini-2.5-flash"
+            style={formInputStyle}
+            spellCheck={false}
+          />
+        )}
+        {model && (
+          <div style={formHintStyle}>
+            ID selecionado: <code style={{ background: '#f1f5f9', padding: '0 4px', borderRadius: 3 }}>{model}</code>
           </div>
         )}
       </div>
+
+      {/* TEMPERATURE */}
+      <div style={formFieldStyle}>
+        <label style={formLabelStyle}>
+          Temperatura: {temperature.toFixed(2)}
+        </label>
+        <input
+          type="range"
+          min="0"
+          max="2"
+          step="0.05"
+          value={temperature}
+          onChange={(e) => setTemperature(parseFloat(e.target.value))}
+          style={{ width: '100%' }}
+        />
+      </div>
+
+      {/* MAX TOKENS */}
+      <div style={formFieldStyle}>
+        <label style={formLabelStyle}>Max tokens</label>
+        <input
+          type="number"
+          min="100"
+          max="32000"
+          step="100"
+          value={maxTokens}
+          onChange={(e) => setMaxTokens(parseInt(e.target.value) || 2000)}
+          style={formInputStyle}
+        />
+      </div>
+
+      {/* FEEDBACK */}
+      {feedback && (
+        <div style={{
+          ...feedbackStyle,
+          background: feedback.ok ? '#d1fae5' : '#fee2e2',
+          color: feedback.ok ? '#065f46' : '#991b1b',
+        }}>
+          {feedback.ok ? <Check size={12} /> : <AlertCircle size={12} />}
+          <span style={{ fontSize: 11 }}>{feedback.msg}</span>
+        </div>
+      )}
+
+      {/* ACTIONS */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+        <button onClick={handleSave} disabled={saving} style={saveBtnStyle}>
+          {saving ? <Loader2 size={12} className="cofrito-spin" /> : <Shield size={12} />}
+          {saving ? 'Salvando...' : 'Salvar como global'}
+        </button>
+      </div>
+
+      <div style={providerSummaryStyle}>
+        <strong style={{ fontSize: 11 }}>📋 {providerInfo?.label}</strong>
+        <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>
+          {providerInfo?.models.length} modelos no catálogo local.
+          {providerInfo?.supportsModelListing && ' Suporta listagem dinâmica via API.'}
+        </div>
+      </div>
     </div>
   )
+}
+
+function formatCtx(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M tokens`
+  if (n >= 1000) return `${(n / 1000).toFixed(0)}k tokens`
+  return `${n} tokens`
 }
 
 const tabBarStyle: React.CSSProperties = {
@@ -362,15 +572,6 @@ const currentConfigStyle: React.CSSProperties = {
   background: '#f0fdf4',
   border: '1px solid #bbf7d0',
   borderRadius: 8,
-}
-
-const noGlobalStyle: React.CSSProperties = {
-  margin: '0 12px 8px',
-  padding: 10,
-  background: '#f9fafb',
-  border: '1px dashed #d1d5db',
-  borderRadius: 8,
-  textAlign: 'center',
 }
 
 const labelStyle: React.CSSProperties = {
@@ -452,4 +653,118 @@ const revokeBtnStyle: React.CSSProperties = {
   padding: 4,
   cursor: 'pointer',
   display: 'flex',
+}
+
+// ── Styles do form com seletor de provider ──────────────────────────────
+
+const formFieldStyle: React.CSSProperties = {
+  marginBottom: 10,
+}
+
+const formLabelStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#374151',
+  marginBottom: 4,
+}
+
+const formInputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '6px 10px',
+  fontSize: 12,
+  border: '1px solid #d1d5db',
+  borderRadius: 6,
+  fontFamily: 'inherit',
+  background: '#ffffff',
+  color: '#0f172a',
+  outline: 'none',
+  boxSizing: 'border-box',
+}
+
+const formSelectStyle: React.CSSProperties = {
+  ...formInputStyle,
+  cursor: 'pointer',
+}
+
+const formHintStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#6b7280',
+  marginTop: 4,
+  lineHeight: 1.4,
+}
+
+const extLinkStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 500,
+  color: '#1a4d8f',
+  textDecoration: 'none',
+  textTransform: 'none',
+  letterSpacing: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
+}
+
+const eyeBtnStyle: React.CSSProperties = {
+  position: 'absolute',
+  right: 6,
+  top: '50%',
+  transform: 'translateY(-50%)',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  padding: 4,
+  fontSize: 14,
+  lineHeight: 1,
+}
+
+const smallBtnStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 3,
+  background: 'transparent',
+  border: '1px solid #d1d5db',
+  borderRadius: 4,
+  padding: '2px 6px',
+  fontSize: 10,
+  color: '#6b7280',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+
+const saveBtnStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  background: '#1a4d8f',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: 6,
+  padding: '8px 12px',
+  fontSize: 12,
+  fontWeight: 500,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+
+const feedbackStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: 8,
+  borderRadius: 6,
+  marginBottom: 8,
+}
+
+const providerSummaryStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: 10,
+  background: '#f9fafb',
+  border: '1px solid #e5e7eb',
+  borderRadius: 8,
 }
