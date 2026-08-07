@@ -20,6 +20,15 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    function isAdminMaster() {
+      // Admin master = o único admin com uid específico (definido via admin script).
+      // Por padrão, o primeiro admin criado vira master. Outros admins não
+      // conseguem mexer em admin-config.
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'master';
+    }
+
     function hasAcceptedConsent() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -27,17 +36,24 @@ service cloud.firestore {
     }
 
     function isValidUserUpdate() {
-      // Campos permitidos para update do próprio usuário
-      let allowed = ['displayName', 'preferences', 'lastSeen'];
+      let allowed = ['displayName', 'preferences', 'lastSeen', 'unidade', 'areasAtuacao'];
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(allowed);
+    }
+
+    // LLM config — campos permitidos
+    function isValidLLMConfig() {
+      let allowed = ['provider', 'model', 'apiKey', 'enabled', 'updatedAt'];
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(allowed);
     }
 
     // ============================================================
-    //  Users (próprio)
+    //  Users (próprio) — dados 100% isolados por usuário
     // ============================================================
 
     match /users/{uid} {
+      // Doc principal do user
       allow read, delete: if isOwner(uid);
 
       allow create: if isOwner(uid) &&
@@ -48,8 +64,23 @@ service cloud.firestore {
 
       allow update: if isOwner(uid) && isValidUserUpdate();
 
-      // Profile
+      // Profile detalhado
       match /profile/main {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Configurações pessoais do user
+      match /settings/{settingId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Configuração de LLM pessoal do user
+      match /settings/llm {
+        allow read, write: if isOwner(uid) && isValidLLMConfig();
+      }
+
+      // Preferências (tema, idioma, etc)
+      match /settings/preferences {
         allow read, write: if isOwner(uid);
       }
 
@@ -69,12 +100,71 @@ service cloud.firestore {
     }
 
     // ============================================================
-    //  Corpus (público para leitura autenticada)
+    //  Admins — dados pessoais do admin
     // ============================================================
+
+    match /admins/{uid} {
+      // Doc principal (registra quem é admin)
+      allow read: if isOwner(uid);
+      allow write: if false; // somente via admin script
+
+      // Configurações PESSOAIS do admin (separadas das globais)
+      match /settings/{settingId} {
+        allow read, write: if isOwner(uid) && isAdmin();
+      }
+
+      // LLM pessoal do admin
+      match /settings/llm {
+        allow read, write: if isOwner(uid) && isAdmin() && isValidLLMConfig();
+      }
+    }
+
+    // ============================================================
+    //  Admin Config GLOBAL — apenas admin master
+    // ============================================================
+    // Aqui ficam configs que afetam TODA a plataforma.
+    // Quando o master configura, sobrescreve o user.
+
+    match /admin-config/{configId} {
+      // Lê só o admin master e os próprios admins (para info)
+      allow read: if isAdmin();
+      // Escreve só o master
+      allow write: if isAdminMaster();
+    }
+
+    // Sub-configs
+    match /admin-config/llm/{settingId} {
+      allow read: if isAdmin();
+      allow write: if isAdminMaster();
+    }
+
+    // ============================================================
+    //  Corpus (acervo público para leitura autenticada)
+    // ============================================================
+    // docs inseridos pelo admin master formam a base de conhecimento
+    // do Cofrito. Leitura: qualquer user autenticado com consent.
+    // Escrita: só admin (master ou não).
 
     match /corpus/{document=**} {
       allow read: if hasAcceptedConsent();
       allow write: if isAdmin();
+    }
+
+    // Sources (metadados de fontes: pastas, links, redes)
+    match /corpus/sources/{sourceId} {
+      allow read: if hasAcceptedConsent();
+      allow write: if isAdmin();
+    }
+
+    // Uploaded (documentos enviados pelo admin)
+    match /corpus/uploaded/{docId} {
+      allow read: if hasAcceptedConsent();
+      allow write: if isAdmin();
+
+      match /chunks/{chunkId} {
+        allow read: if hasAcceptedConsent();
+        allow write: if isAdmin();
+      }
     }
 
     // ============================================================
@@ -105,16 +195,7 @@ service cloud.firestore {
 
     match /audit/{auditId} {
       allow read: if isAdmin();
-      allow write: if false; // só via Admin SDK / Cloud Functions
-    }
-
-    // ============================================================
-    //  Admins
-    // ============================================================
-
-    match /admins/{uid} {
-      allow read: if isSignedIn() && request.auth.uid == uid;
-      allow write: if false; // somente via admin script
+      allow write: if false;
     }
 
     // ============================================================
@@ -132,7 +213,13 @@ service cloud.firestore {
 
     match /system/{document=**} {
       allow read: if isAdmin();
-      allow write: if false; // só via Admin SDK
+      allow write: if false;
     }
+
+    // ============================================================
+    //  Negação default: qualquer path não especificada = DENY
+    // ============================================================
+    // Regras de Firestore têm deny-by-default. Paths fora desta lista
+    // são inacessíveis.
   }
 }
