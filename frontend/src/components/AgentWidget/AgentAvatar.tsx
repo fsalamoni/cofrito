@@ -8,11 +8,12 @@ export type AgentState = 'idle' | 'thinking' | 'error' | 'happy'
 
 interface AgentAvatarProps {
   state?: AgentState
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  /** Tamanho em pixels OU uma chave predefinida. */
+  size?: number | 'sm' | 'md' | 'lg' | 'xl'
   className?: string
 }
 
-const SIZES = {
+const SIZES: Record<'sm' | 'md' | 'lg' | 'xl', number> = {
   sm: 40,
   md: 80,
   lg: 120,
@@ -20,7 +21,7 @@ const SIZES = {
 }
 
 export function AgentAvatar({ state = 'idle', size = 'md', className = '' }: AgentAvatarProps) {
-  const px = SIZES[size]
+  const px = typeof size === 'number' ? size : SIZES[size]
   return (
     <motion.img
       src={cofritoImg}
@@ -40,7 +41,7 @@ export function AgentAvatar({ state = 'idle', size = 'md', className = '' }: Age
           : { duration: 0.5 }
       }
       className={`cofrito-avatar-img ${className}`}
-      style={{ width: px, height: 'auto' }}
+      style={{ width: px, height: 'auto', maxWidth: 'none' }}
       draggable={false}
     />
   )

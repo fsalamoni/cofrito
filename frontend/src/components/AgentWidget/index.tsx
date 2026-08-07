@@ -1,134 +1,318 @@
 /**
- * AgentWidget — componente principal do widget do Cofrito.
+ * AgentWidget — painel flutuante e arrastável.
  *
- * Pode ser usado:
- * 1. Como Web Component (via widget-entry.tsx) — para embed em página externa
- * 2. Diretamente no portal admin — para desenvolvimento
+ * - Aparece inicialmente como botão redondo (FAB) no canto inferior direito
+ * - Ao abrir, vira um painel retangular (380×560) que pode ser arrastado
+ *   pela barra de header para qualquer lugar da tela
+ * - Posição é persistida em localStorage
+ * - Pode ser minimizado (volta ao FAB) ou fechado (some)
+ * - Funciona sobre qualquer página sem atrapalhar a navegação
  */
-import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { X, History, Plus } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, Plus, GripVertical } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
-import { useAuth } from '@/hooks/useAuth'
 import { ChatPanel } from './ChatPanel'
 import { AgentAvatar } from './AgentAvatar'
-import cofritoImg from '@/assets/cofrito/cofrito.png'
 import { t } from '@/i18n/config'
 
 interface AgentWidgetProps {
   tenant?: string
-  position?: 'bottom-right' | 'bottom-left' | 'bottom-center'
   locale?: string
   defaultOpen?: boolean
 }
 
+interface Position {
+  x: number  // offset from right (px)
+  y: number  // offset from top (px)
+}
+
+const POSITION_STORAGE_KEY = 'cofrito:widgetPosition'
+const DEFAULT_POSITION: Position = { x: 24, y: 24 }
+const FAB_SIZE = 64
+const PANEL_WIDTH = 400
+const PANEL_HEIGHT = 600
+
 export function AgentWidget({
-  tenant: _tenant = 'caocipp',
-  position = 'bottom-right',
-  locale: _locale = 'pt-BR',
+  tenant,
+  locale = 'pt-BR',
   defaultOpen = false,
 }: AgentWidgetProps) {
-  const { isOpen, isInitialized, init, open, close, toggle } = useChatStore()
-  const { user } = useAuth()
-  const [hasAppeared, setHasAppeared] = useState(false)
+  const isOpen = useChatStore((s) => s.isOpen)
+  const open = useChatStore((s) => s.open)
+  const close = useChatStore((s) => s.close)
+  const restart = useChatStore((s) => s.startNewConversation)
+  const conversationsCount = useChatStore((s) => s.conversations.length)
 
-  useEffect(() => {
-    if (!isInitialized) init(defaultOpen)
-  }, [isInitialized, init, defaultOpen])
+  const [pos, setPos] = useState<Position>(() => loadPosition())
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null)
+  const widgetRef = useRef<HTMLDivElement>(null)
 
-  // Aparece 2s após carregar (animação suave)
+  // Inicializa se vier com defaultOpen
   useEffect(() => {
-    const timer = setTimeout(() => setHasAppeared(true), 2000)
-    return () => clearTimeout(timer)
-  }, [])
+    if (defaultOpen && !isOpen) open()
+  }, [defaultOpen, isOpen, open])
 
-  // Eventos programáticos
+  // Persiste posição
   useEffect(() => {
-    const onOpen = () => open()
-    const onClose = () => close()
-    window.addEventListener('cofrito:open', onOpen)
-    window.addEventListener('cofrito:close', onClose)
-    return () => {
-      window.removeEventListener('cofrito:open', onOpen)
-      window.removeEventListener('cofrito:close', onClose)
+    if (isOpen) {
+      try {
+        window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(pos))
+      } catch { /* ignore */ }
     }
-  }, [open, close])
+  }, [pos, isOpen])
 
-  if (!hasAppeared && !isOpen) return null
+  // Limites da tela
+  function clampPosition(p: Position): Position {
+    if (typeof window === 'undefined') return p
+    const maxX = window.innerWidth - (isOpen ? PANEL_WIDTH : FAB_SIZE) - 8
+    const maxY = window.innerHeight - (isOpen ? PANEL_HEIGHT : FAB_SIZE) - 8
+    return {
+      x: Math.max(8, Math.min(p.x, maxX)),
+      y: Math.max(8, Math.min(p.y, maxY)),
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    if (!isOpen) return
+    e.preventDefault()
+    setDragging(true)
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: pos.x,
+      startPosY: pos.y,
+    }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!dragging || !dragRef.current) return
+    const dx = e.clientX - dragRef.current.startX
+    const dy = e.clientY - dragRef.current.startY
+    // Como pos.x é offset da direita, mover pra direita aumenta x
+    const newX = dragRef.current.startPosX - dx
+    const newY = dragRef.current.startPosY + dy
+    setPos(clampPosition({ x: newX, y: newY }))
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    if (!dragging) return
+    setDragging(false)
+    dragRef.current = null
+    try {
+      ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch { /* ignore */ }
+  }
+
+  // Quando a janela redimensiona, mantém dentro dos limites
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = () => setPos((p) => clampPosition(p))
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [isOpen])
+
+  const widgetStyle: React.CSSProperties = isOpen
+    ? {
+        position: 'fixed',
+        right: pos.x,
+        top: pos.y,
+        width: PANEL_WIDTH,
+        height: PANEL_HEIGHT,
+        zIndex: 9999,
+        // Sombra generosa pra parecer "flutuante"
+        boxShadow: '0 24px 48px -8px rgba(15, 23, 42, 0.25), 0 8px 16px -4px rgba(15, 23, 42, 0.15)',
+        borderRadius: 16,
+        background: '#ffffff',
+        border: '1px solid rgba(15, 23, 42, 0.08)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        // Animação suave de entrada
+        animation: 'cofrito-widget-in 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+      }
+    : {
+        position: 'fixed',
+        right: pos.x,
+        bottom: pos.y,
+        width: FAB_SIZE,
+        height: FAB_SIZE,
+        zIndex: 9999,
+        cursor: 'pointer',
+        // Sombra circular característica de FAB
+        boxShadow: '0 8px 24px -4px rgba(26, 77, 143, 0.4), 0 4px 8px -2px rgba(26, 77, 143, 0.2)',
+        borderRadius: '50%',
+        // Animação de pulse para chamar atenção
+        animation: 'cofrito-fab-in 240ms cubic-bezier(0.16, 1, 0.3, 1)',
+      }
 
   return (
-    <>
-      {/* Botão flutuante */}
-      <AnimatePresence>
-        {!isOpen && hasAppeared && (
-          <motion.button
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-            onClick={toggle}
-            aria-label={t('widget.open')}
-            className="cofrito-fab"
-          >
-            <img src={cofritoImg} alt="Cofrito" className="cofrito-fab-img" />
-            <span className="cofrito-fab-dot" aria-hidden="true" />
-          </motion.button>
-        )}
-      </AnimatePresence>
+    <div ref={widgetRef} style={widgetStyle} data-cofrito-widget data-tenant={tenant}>
+      <style>{keyframesCss}</style>
 
-      {/* Painel de chat */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ y: 20, opacity: 0, scale: 0.95 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 20, opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-            className={`cofrito-panel cofrito-panel--${position}`}
-            role="dialog"
-            aria-label={t('widget.title')}
-            aria-modal="false"
+      {isOpen ? (
+        // Painel aberto
+        <>
+          {/* Header arrastável */}
+          <div
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            style={{
+              background: 'linear-gradient(135deg, #1a4d8f 0%, #5B7CFA 100%)',
+              color: '#ffffff',
+              padding: '14px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              cursor: dragging ? 'grabbing' : 'grab',
+              userSelect: 'none',
+              flexShrink: 0,
+            }}
           >
-            <header className="cofrito-header">
-              <AgentAvatar size="sm" />
-              <div className="cofrito-header-info">
-                <h3 className="cofrito-header-title">Cofrito</h3>
-                <p className="cofrito-header-status">
-                  <span className="cofrito-status-dot" aria-hidden="true" />
-                  {user ? t('widget.online') : t('widget.guest')}
-                </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              <div style={{ flexShrink: 0 }}>
+                <AgentAvatar size={36} />
               </div>
-              <div className="cofrito-header-actions">
-                <button
-                  className="cofrito-icon-btn"
-                  onClick={() => (window.location.hash = '#/historico')}
-                  aria-label={t('widget.history')}
-                  title={t('widget.history')}
-                >
-                  <History size={16} />
-                </button>
-                <button
-                  className="cofrito-icon-btn"
-                  onClick={() => useChatStore.getState().startNewConversation()}
-                  aria-label={t('widget.newConversation')}
-                  title={t('widget.newConversation')}
-                >
-                  <Plus size={16} />
-                </button>
-                <button
-                  className="cofrito-icon-btn"
-                  onClick={close}
-                  aria-label={t('widget.close')}
-                  title={t('widget.close')}
-                >
-                  <X size={16} />
-                </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.2 }}>Cofrito</div>
+                <div style={{ fontSize: 11, opacity: 0.85, lineHeight: 1.2, marginTop: 2 }}>
+                  Assistente do CAOCIPP
+                </div>
               </div>
-            </header>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); restart() }}
+                title="Nova conversa"
+                style={iconButtonStyle}
+                aria-label="Nova conversa"
+              >
+                <Plus size={16} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); close() }}
+                title="Minimizar"
+                style={iconButtonStyle}
+                aria-label="Fechar"
+              >
+                <X size={16} />
+              </button>
+              <div style={{ ...iconButtonStyle, cursor: 'grab', pointerEvents: 'none' }} aria-hidden>
+                <GripVertical size={14} />
+              </div>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
             <ChatPanel />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+          </div>
+        </>
+      ) : (
+        // FAB (botão flutuante)
+        <button
+          onClick={open}
+          aria-label={t('widget.open' as any, locale) || 'Abrir Cofrito'}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            borderRadius: '50%',
+            cursor: 'pointer',
+            background: 'transparent',
+            padding: 0,
+            position: 'relative',
+          }}
+        >
+          <AgentAvatar size={FAB_SIZE} />
+          {conversationsCount > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                background: '#ef4444',
+                color: '#ffffff',
+                fontSize: 11,
+                fontWeight: 600,
+                minWidth: 20,
+                height: 20,
+                borderRadius: 10,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 5px',
+                border: '2px solid #ffffff',
+              }}
+            >
+              {conversationsCount}
+            </span>
+          )}
+        </button>
+      )}
+    </div>
   )
 }
+
+function loadPosition(): Position {
+  if (typeof window === 'undefined') return DEFAULT_POSITION
+  try {
+    const raw = window.localStorage.getItem(POSITION_STORAGE_KEY)
+    if (!raw) return DEFAULT_POSITION
+    const parsed = JSON.parse(raw)
+    if (
+      typeof parsed.x === 'number' &&
+      typeof parsed.y === 'number' &&
+      Number.isFinite(parsed.x) &&
+      Number.isFinite(parsed.y)
+    ) {
+      return parsed
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_POSITION
+}
+
+const iconButtonStyle: React.CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.15)',
+  border: 'none',
+  color: '#ffffff',
+  width: 30,
+  height: 30,
+  borderRadius: 6,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+}
+
+const keyframesCss = `
+@keyframes cofrito-widget-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cofrito-fab-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes cofrito-fab-pulse {
+  0%, 100% { box-shadow: 0 8px 24px -4px rgba(26, 77, 143, 0.4), 0 4px 8px -2px rgba(26, 77, 143, 0.2), 0 0 0 0 rgba(91, 124, 250, 0.5); }
+  50% { box-shadow: 0 8px 24px -4px rgba(26, 77, 143, 0.4), 0 4px 8px -2px rgba(26, 77, 143, 0.2), 0 0 0 16px rgba(91, 124, 250, 0); }
+}
+`
