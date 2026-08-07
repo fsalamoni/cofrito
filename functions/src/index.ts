@@ -61,7 +61,7 @@ export {
 } from './handlers/llm-config'
 
 // Bootstrap: primeiro user vira master
-export { bootstrapAdminMaster } from './handlers/bootstrap-admin'
+export { bootstrapAdminMaster, grantAdminByEmail } from './handlers/bootstrap-admin'
 
 // Admin
 export { adminReingest } from './handlers/admin/reingest'

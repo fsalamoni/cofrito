@@ -327,6 +327,10 @@ function BootstrapButton() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [showCurl, setShowCurl] = useState(false)
+  const [email, setEmail] = useState('')
+  const [secret, setSecret] = useState('')
+  const [curlResult, setCurlResult] = useState<string | null>(null)
 
   async function handleBootstrap() {
     if (!confirm('Tornar-se master admin? (Disponível apenas se nenhum master existir ainda)')) return
@@ -344,18 +348,89 @@ function BootstrapButton() {
     }
   }
 
+  async function handleCurl() {
+    if (!email || !secret) {
+      setCurlResult('Preencha email e secret')
+      return
+    }
+    setCurlResult('Enviando...')
+    try {
+      const res = await fetch('https://southamerica-east1-cofrito.cloudfunctions.net/grantAdminByEmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, secret, role: 'master' }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setCurlResult(`✓ ${data.message}\nUID: ${data.uid}`)
+      } else {
+        setCurlResult(`✗ ${data.error || 'Erro'}`)
+      }
+    } catch (err: any) {
+      setCurlResult(`✗ ${err.message}`)
+    }
+  }
+
   if (success) {
     return <p style={{ color: '#059669', fontWeight: 500, marginTop: 16 }}>✓ Pronto! Recarregando...</p>
   }
 
   return (
-    <div style={{ marginTop: 16, textAlign: 'center' }}>
+    <div style={{ marginTop: 16, textAlign: 'center', maxWidth: 480, width: '100%' }}>
       <button onClick={handleBootstrap} disabled={loading} style={bootstrapBtnStyle}>
         {loading ? 'Verificando...' : '👑 Tornar-me o primeiro master admin'}
       </button>
-      {error && <p style={{ color: '#dc2626', fontSize: 12, marginTop: 8, maxWidth: 400 }}>{error}</p>}
+      {error && <p style={{ color: '#dc2626', fontSize: 12, marginTop: 8 }}>{error}</p>}
+
+      <div style={{ marginTop: 24, padding: 12, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, textAlign: 'left' }}>
+        <button
+          onClick={() => setShowCurl((v) => !v)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: 12, fontWeight: 600 }}
+        >
+          {showCurl ? '▼' : '▶'} Alternativa: promover por email (caso o botão falhe)
+        </button>
+        {showCurl && (
+          <div style={{ marginTop: 8 }}>
+            <p style={{ fontSize: 11, color: '#78350f', lineHeight: 1.5, margin: '0 0 8px' }}>
+              Se você não consegue usar o botão acima, preencha seu email e peça o
+              <code> MASTER_BOOTSTRAP_SECRET</code> ao admin (ou use o secret configurado no deploy).
+            </p>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="seu@email.com"
+              style={{ ...inputInlineStyle, width: '100%', marginBottom: 6 }}
+            />
+            <input
+              type="password"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder="MASTER_BOOTSTRAP_SECRET"
+              style={{ ...inputInlineStyle, width: '100%', marginBottom: 6 }}
+            />
+            <button onClick={handleCurl} style={{ ...bootstrapBtnStyle, width: '100%', justifyContent: 'center' }}>
+              Promover como master
+            </button>
+            {curlResult && (
+              <pre style={{ marginTop: 8, padding: 8, background: '#fffbeb', borderRadius: 4, fontSize: 11, color: '#78350f', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
+                {curlResult}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+const inputInlineStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  fontSize: 12,
+  border: '1px solid #d1d5db',
+  borderRadius: 4,
+  fontFamily: 'inherit',
+  outline: 'none',
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────

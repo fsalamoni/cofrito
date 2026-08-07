@@ -8,6 +8,10 @@
     ],
     "rewrites": [
       {
+        "source": "/grantAdminByEmail",
+        "function": "grantAdminByEmail"
+      },
+      {
         "source": "/api/**",
         "function": "api"
       },
@@ -73,7 +77,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebaseio.com https://*.googleapis.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com; frame-src 'self' https://*.firebaseapp.com https://*.google.com https://accounts.google.com https://content-sheets.googleapis.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://*.google.com;"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebaseio.com https://*.googleapis.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://*.cloudfunctions.net https://southamerica-east1-cofrito.cloudfunctions.net; frame-src 'self' https://*.firebaseapp.com https://*.google.com https://accounts.google.com https://content-sheets.googleapis.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://*.google.com;"
           }
         ]
       }
