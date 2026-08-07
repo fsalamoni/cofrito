@@ -14,7 +14,7 @@
  *  - Quando aberto, pode ser arrastado para qualquer canto
  */
 import { useEffect, useRef, useState } from 'react'
-import { X, GripVertical, History, MessageSquarePlus, Settings as SettingsIcon, ChevronLeft } from 'lucide-react'
+import { X, GripVertical, History, MessageSquarePlus, Settings as SettingsIcon, ChevronLeft, MoreVertical, Shield, ExternalLink } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { ChatPanel } from './ChatPanel'
 import { AgentAvatar } from './AgentAvatar'
@@ -57,6 +57,7 @@ export function AgentWidget({
   const [size, setSize] = useState<Size>(() => loadSize())
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showMore, setShowMore] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [resizing, setResizing] = useState(false)
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null)
@@ -151,7 +152,7 @@ export function AgentWidget({
     return () => window.removeEventListener('resize', handler)
   }, [isOpen, size])
 
-  // FAB: imagem do cofrito grande
+  // FAB: imagem do cofrito grande, ARRASTÁVEL
   if (!isOpen) {
     return (
       <div
@@ -163,11 +164,50 @@ export function AgentWidget({
           width: FAB_SIZE,
           height: FAB_SIZE,
           zIndex: 9999,
-          cursor: 'pointer',
+          cursor: dragging ? 'grabbing' : 'grab',
         }}
-        onClick={open}
+        onPointerDown={(e) => {
+          e.preventDefault()
+          setDragging(true)
+          dragRef.current = {
+            sx: e.clientX, sy: e.clientY,
+            px: pos.x, py: pos.y,
+          }
+          ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          if (dragging && dragRef.current) {
+            const dx = e.clientX - dragRef.current.sx
+            const dy = e.clientY - dragRef.current.sy
+            setPos(clampPos({
+              x: dragRef.current.px - dx,
+              y: dragRef.current.py + dy,
+            }, FAB_SIZE, FAB_SIZE))
+          }
+        }}
+        onPointerUp={(e) => {
+          if (dragging) {
+            // Detectar se foi um click (sem movimento significativo)
+            const moved = Math.abs(e.clientX - (dragRef.current?.sx ?? e.clientX)) > 4
+              || Math.abs(e.clientY - (dragRef.current?.sy ?? e.clientY)) > 4
+            setDragging(false)
+            dragRef.current = null
+            try {
+              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+            } catch { /* */ }
+            if (!moved) {
+              open()
+            }
+          }
+        }}
+        onPointerCancel={(e) => {
+          setDragging(false)
+          dragRef.current = null
+          try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* */ }
+        }}
         role="button"
-        aria-label="Abrir Cofrito"
+        aria-label="Abrir ou arrastar Cofrito"
+        title="Arraste para mover ou clique para abrir"
         data-cofrito-widget
         data-tenant={tenant}
       >
@@ -178,12 +218,36 @@ export function AgentWidget({
             width: '100%',
             height: '100%',
             animation: 'cofrito-fab-in 240ms cubic-bezier(0.16, 1, 0.3, 1)',
-            transition: 'transform 0.2s',
+            transition: dragging ? 'none' : 'transform 0.2s',
+            transform: dragging ? 'scale(1.02)' : 'scale(1)',
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
+          onMouseEnter={(e) => { if (!dragging) e.currentTarget.style.transform = 'scale(1.05)' }}
+          onMouseLeave={(e) => { if (!dragging) e.currentTarget.style.transform = 'scale(1)' }}
         >
           <AgentAvatar size={FAB_SIZE} />
+        </div>
+        {/* Hint visual: cursor muda para grab */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: -2,
+            right: -2,
+            background: 'rgba(26, 77, 143, 0.85)',
+            color: '#ffffff',
+            width: 24,
+            height: 24,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 14,
+            border: '2px solid #ffffff',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+            pointerEvents: 'none',
+          }}
+          title="Arraste para mover"
+        >
+          ✥
         </div>
       </div>
     )
@@ -270,6 +334,14 @@ export function AgentWidget({
             <MessageSquarePlus size={16} />
           </button>
           <button
+            onClick={(e) => { e.stopPropagation(); setShowMore((v) => !v) }}
+            title="Mais opções"
+            aria-label="Mais opções"
+            style={{ ...iconButtonStyle, ...(showMore ? iconButtonActiveStyle : {}) }}
+          >
+            <MoreVertical size={16} />
+          </button>
+          <button
             onClick={(e) => { e.stopPropagation(); close() }}
             title="Minimizar (volta para o ícone)"
             aria-label="Minimizar"
@@ -284,6 +356,35 @@ export function AgentWidget({
             <GripVertical size={14} />
           </div>
         </div>
+        {/* More menu dropdown */}
+        {showMore && (
+          <>
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
+              onClick={() => setShowMore(false)}
+            />
+            <div style={moreMenuStyle}>
+              <button
+                onClick={() => { window.location.hash = '#/settings'; setShowMore(false); close() }}
+                style={moreMenuItemStyle}
+              >
+                <SettingsIcon size={14} />
+                <span>Página de Configurações</span>
+                <ExternalLink size={11} style={{ marginLeft: 'auto', opacity: 0.4 }} />
+              </button>
+              {isAdminMaster && (
+                <button
+                  onClick={() => { window.location.hash = '#/admin'; setShowMore(false); close() }}
+                  style={{ ...moreMenuItemStyle, color: '#1a4d8f' }}
+                >
+                  <Shield size={14} />
+                  <span>Painel Administrativo</span>
+                  <ExternalLink size={11} style={{ marginLeft: 'auto', opacity: 0.4 }} />
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Body: 2 colunas (sidebar + chat) */}
@@ -399,6 +500,37 @@ const iconButtonStyle: React.CSSProperties = {
 
 const iconButtonActiveStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.35)',
+}
+
+const moreMenuStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 60,
+  right: 12,
+  background: '#ffffff',
+  borderRadius: 10,
+  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+  padding: 4,
+  minWidth: 240,
+  zIndex: 10001,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+}
+
+const moreMenuItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  background: 'transparent',
+  border: 'none',
+  padding: '8px 12px',
+  borderRadius: 6,
+  fontSize: 13,
+  color: '#0f172a',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+  width: '100%',
 }
 
 const keyframesCss = `

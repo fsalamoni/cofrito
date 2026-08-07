@@ -11,13 +11,15 @@ import { AgentWidget } from '@/components/AgentWidget'
 import { useProfile } from '@/hooks/useProfile'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
-import { FileText, Scale, BookOpen, MessageCircle, LogOut, Search, ChevronRight, Mail, Phone, MapPin, ExternalLink } from 'lucide-react'
+import { useIsAdminMaster } from '@/hooks/useAdminStatus'
+import { FileText, Scale, BookOpen, MessageCircle, LogOut, Search, ChevronRight, Mail, Phone, MapPin, ExternalLink, Settings as SettingsIcon, Shield } from 'lucide-react'
 
 export function HomePage() {
   const { data: profile, isError } = useProfile()
   const user = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
   const openChat = useChatStore((s) => s.open)
+  const isAdminMaster = useIsAdminMaster()
   const [searchQuery, setSearchQuery] = useState('')
 
   if (isError) {
@@ -48,6 +50,16 @@ export function HomePage() {
           <div style={headerRightStyle}>
             {user ? (
               <>
+                {isAdminMaster && (
+                  <a href="#/admin" style={adminLinkStyle} title="Painel de Administração">
+                    <Shield size={14} />
+                    <span>Admin</span>
+                  </a>
+                )}
+                <a href="#/settings" style={userLinkStyle} title="Configurações">
+                  <SettingsIcon size={14} />
+                  <span>Configurações</span>
+                </a>
                 <span style={userBadgeStyle}>
                   {profile?.displayName || user.email}
                 </span>
@@ -381,6 +393,28 @@ const signOutBtnStyle: React.CSSProperties = {
   color: '#6b7280',
   display: 'flex',
   alignItems: 'center',
+}
+
+const userLinkStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 5,
+  background: '#ffffff',
+  border: '1px solid #d1d5db',
+  borderRadius: 6,
+  padding: '5px 10px',
+  color: '#1a4d8f',
+  fontSize: 12,
+  fontWeight: 500,
+  textDecoration: 'none',
+  cursor: 'pointer',
+}
+
+const adminLinkStyle: React.CSSProperties = {
+  ...userLinkStyle,
+  background: '#1a4d8f',
+  color: '#ffffff',
+  border: '1px solid #1a4d8f',
 }
 
 const subheaderStyle: React.CSSProperties = {
