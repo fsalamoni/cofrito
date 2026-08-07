@@ -1,12 +1,15 @@
 /**
- * App principal — portal admin + demo page.
- * No deploy, este é o portal completo.
- * O widget embarcável é buildado à parte (vite.widget.config.ts).
+ * App principal — landing + portal.
+ *
+ * Fluxo:
+ *  - usuário não logado → LandingPage (com botões de login)
+ *  - usuário logado → HomePage (com widget do chat)
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useAuthStore } from './stores/authStore'
 import { HomePage } from './pages/HomePage'
+import { LandingPage } from './pages/LandingPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,6 +23,8 @@ const queryClient = new QueryClient({
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
+  const user = useAuthStore((s) => s.user)
+  const initialized = useAuthStore((s) => s.initialized)
 
   useEffect(() => {
     init()
@@ -27,7 +32,32 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <HomePage />
+      {!initialized ? (
+        <LoadingScreen />
+      ) : user ? (
+        <HomePage />
+      ) : (
+        <LandingPage />
+      )}
     </QueryClientProvider>
+  )
+}
+
+function LoadingScreen() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#ffffff',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        color: '#6b7280',
+        fontSize: 14,
+      }}
+    >
+      Carregando…
+    </div>
   )
 }
