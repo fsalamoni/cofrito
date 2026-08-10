@@ -43,7 +43,8 @@ export const chatV2 = onCall(
     const userId = request.auth.uid
     const parsed = ChatRequestSchema.safeParse(request.data)
     if (!parsed.success) {
-      throw new HttpsError('invalid-argument', 'Mensagem inválida.')
+      logger.error('chatV2 schema fail', { errors: parsed.error.errors, received: request.data })
+      throw new HttpsError('invalid-argument', `Mensagem inválida: ${parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ')}`)
     }
     const { conversationId, message, allowExternal, requestLegalAnalysis, effort, context } = parsed.data
     const start = Date.now()
