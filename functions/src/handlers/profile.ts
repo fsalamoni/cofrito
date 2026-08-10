@@ -57,3 +57,4 @@ export const updateProfile = onCall(
 
   return await getProfileFromDB(userId)
 })
+// Forçado para re-deploy 2026-08-10
