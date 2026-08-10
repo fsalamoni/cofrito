@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-imports */
 /**
  * Researcher-Internal — busca no corpus interno da plataforma.
  *

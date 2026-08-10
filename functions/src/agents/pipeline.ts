@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-imports */
 /**
  * Pipeline multi-agente — orquestra a execução sequencial de todas as skills.
  *

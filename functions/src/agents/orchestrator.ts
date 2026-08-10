@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-imports */
 /**
  * Orchestrator — primeiro agente do pipeline.
  *

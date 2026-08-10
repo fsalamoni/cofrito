@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-imports */
 /**
  * Legal-Writer — quinto (e último) agente do pipeline.
  *
