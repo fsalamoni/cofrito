@@ -14,7 +14,7 @@ import { z } from 'zod'
 import { getFirestore } from 'firebase-admin/firestore'
 
 import { retrieveRelevantChunks } from '../services/retrieval'
-import { generateWithProvider, type LLMConfigLike } from '../services/llm-providers'
+import { type LLMConfigLike } from '../services/llm-providers'
 import { buildSystemPrompt } from '../prompts/system'
 import { saveMessage, getRecentHistory } from '../services/history'
 import { checkScopeGuardrail } from '../services/guardrails'
@@ -51,7 +51,7 @@ export const chatV2 = onCall(
       const sanitizedText = filterPII(message).text
 
       // 2. Histórico
-      const history = await getRecentHistory(userId, conversationId, 6)
+      const recentHistory = await getRecentHistory(userId, conversationId, 6); logger.debug("history.size", { size: recentHistory.length })
 
       // 3. Retrieval
       const chunks = await retrieveRelevantChunks(sanitizedText, { topK: 8, minSimilarity: 0.55 })
@@ -126,82 +126,78 @@ export const chatV2 = onCall(
         configToUse = { provider: 'google', model, apiKey: '' }
       }
 
-      // 7. System prompt + mensagens
+      // 7. System prompt
       const systemPrompt = buildSystemPrompt({
         userName: profile.displayName,
         userAreas: profile.inferredAreas,
         allowExternal,
         hasCorpusChunks: chunks.length > 0,
       })
-      const messages = [
-        ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-        { role: 'user' as const, content: sanitizedText },
-      ]
 
-      // 8. Geração
+      // 8. Carregar configs de pesquisa (research, web-search, intranet)
+      const [researchSnap, webSearchSnap, intranetSnap] = await Promise.all([
+        db.doc('admin-config/research').get(),
+        db.doc('admin-config/web-search').get(),
+        db.doc('admin-config/intranet').get(),
+      ])
+      const typesMod = await import('../agents/types')
+      const researchConfig: import('../agents/types').ResearchConfig = researchSnap.exists
+        ? { ...typesMod.DEFAULT_RESEARCH_CONFIG, ...researchSnap.data() }
+        : typesMod.DEFAULT_RESEARCH_CONFIG
+      const webSearchConfig: import('../agents/types').WebSearchConfig = webSearchSnap.exists
+        ? { ...typesMod.DEFAULT_WEB_SEARCH_CONFIG, ...webSearchSnap.data() }
+        : typesMod.DEFAULT_WEB_SEARCH_CONFIG
+      const intranetConfig: import('../agents/types').IntranetConfig = intranetSnap.exists
+        ? { ...typesMod.DEFAULT_INTRANET_CONFIG, ...intranetSnap.data() }
+        : typesMod.DEFAULT_INTRANET_CONFIG
+
+      // 9. Detectar se user pediu análise jurídica (lexical simples)
+      const requiresLegalWriting = /\b(analis[ae]r?|analise|opinar?|elabor[ae]r?|redij[ae]r?|fundament[ae]r?|parecer[ ]?jur[íi]dico)\b/i.test(message)
+
+      // 10. PIPELINE MULTI-AGENTE (orchestrator → internal → web → compiler → legal-writer → critic)
       let content: string = ''
       let tokensUsed = { input: 0, output: 0, total: 0 }
+      let agentRunsCount = 0
+      let iterations = 0
+      let criticScore: number | undefined
 
       try {
-        const out = await generateWithProvider({
+        const { runAgentPipeline } = await import('../agents/pipeline')
+        const result = await runAgentPipeline({
+          userId,
+          conversationId: conversationId ?? `pending_${userId}_${Date.now()}`,
+          question: message,
+          sanitizedQuestion: sanitizedText,
+          allowExternal,
+          requiresLegalWriting,
+          effort: 'medio',
+          userAreas: profile.inferredAreas,
           systemPrompt,
-          messages,
-          config: configToUse,
+          llmConfig: configToUse,
           geminiApiKey: process.env.GEMINI_API_KEY || '',
+          researchConfig,
+          webSearchConfig,
+          intranetConfig,
+          logger: {
+            info: (m: string, x?: unknown) => logger.info(m, x),
+            warn: (m: string, x?: unknown) => logger.warn(m, x),
+            error: (m: string, x?: unknown) => logger.error(m, x),
+          },
         })
-        content = out.content
-        tokensUsed = out.tokens
+        content = result.finalAnswer
+        agentRunsCount = result.agentRuns.length
+        iterations = result.iterations
+        criticScore = result.criticScore
+        // Estimar tokens
+        tokensUsed = {
+          input: Math.ceil(message.length / 4),
+          output: Math.ceil(content.length / 4),
+          total: 0,
+        }
+        tokensUsed.total = tokensUsed.input + tokensUsed.output
       } catch (err: any) {
-        logger.error('generateWithProvider falhou', { provider, model, err: err?.message })
-        // FALLBACK CHAIN: se a config principal falhar, tenta OpenRouter (se não for já)
-        //   e depois Gemini (se não for já) antes do erro fatal.
-        const tried = new Set([provider])
-        let recovered = false
-        // Tentativa 1: OpenRouter (se ainda não tentou e tiver key)
-        if (!tried.has('openrouter') && process.env.OPENROUTER_API_KEY) {
-          try {
-            const out = await generateWithProvider({
-              systemPrompt,
-              messages,
-              config: {
-                provider: 'openrouter',
-                model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
-                apiKey: process.env.OPENROUTER_API_KEY,
-              },
-              geminiApiKey: process.env.GEMINI_API_KEY || '',
-            })
-            content = out.content
-            tokensUsed = out.tokens
-            provider = 'openrouter'
-            model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
-            recovered = true
-            logger.warn('chat.fallback.openrouter', { userId, originalProvider: effectiveConfig?.provider, originalModel: effectiveConfig?.model })
-          } catch (err2: any) {
-            logger.error('Fallback OpenRouter falhou', { err: err2?.message })
-          }
-        }
-        // Tentativa 2: Gemini nativo (se ainda não tentou e tiver key)
-        if (!recovered && !tried.has('google') && process.env.GEMINI_API_KEY) {
-          try {
-            const out = await generateWithProvider({
-              systemPrompt,
-              messages,
-              config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: process.env.GEMINI_API_KEY },
-              geminiApiKey: process.env.GEMINI_API_KEY,
-            })
-            content = out.content
-            tokensUsed = out.tokens
-            provider = 'google'
-            model = 'gemini-2.5-flash'
-            recovered = true
-            logger.warn('chat.fallback.gemini', { userId, originalProvider: effectiveConfig?.provider, originalModel: effectiveConfig?.model })
-          } catch (err3: any) {
-            logger.error('Fallback Gemini falhou', { err: err3?.message })
-          }
-        }
-        if (!recovered) {
-          content = `⚠️ Erro ao chamar o provedor ${provider} (${model}): ${err?.message ?? 'desconhecido'}. Configure um provedor em Configurações ou contate o admin.`
-        }
+        logger.error('pipeline falhou', { err: err?.message })
+        content = `⚠️ Erro no pipeline de agentes: ${err?.message ?? 'desconhecido'}.`
       }
 
       // 9. Persistência
@@ -223,9 +219,9 @@ export const chatV2 = onCall(
       )
 
       const latencyMs = Date.now() - start
-      logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed, allowExternal, provider, model })
+      logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed, allowExternal, provider, model, agentRunsCount, iterations, criticScore })
 
-      logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed, allowExternal, provider, model })
+      logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed, allowExternal, provider, model, agentRunsCount, iterations, criticScore })
 
       return {
         conversationId: newConvId,
@@ -246,6 +242,9 @@ export const chatV2 = onCall(
         latencyMs,
         provider,
         model,
+        agentRuns: agentRunsCount,
+        iterations,
+        criticScore,
       }
     } catch (err: any) {
       logger.error('chat.error', { userId, err: err?.message ?? err })

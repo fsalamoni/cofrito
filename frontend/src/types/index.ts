@@ -48,6 +48,9 @@ export interface ChatMessage {
   latencyMs?: number
   intent?: string
   guardrailTriggered?: string
+  agentRuns?: number
+  iterations?: number
+  criticScore?: number
   createdAt: string
 }
 
@@ -89,6 +92,14 @@ export interface ChatResponse {
   actions: ChatAction[]
   usage: { prompt: number; completion: number; total: number }
   latencyMs: number
+  provider?: string
+  model?: string
+  /** Número de agent runs executados no pipeline (orquestrador, pesquisador, compilador, etc.) */
+  agentRuns?: number
+  /** Número de iterações do loop de crítico */
+  iterations?: number
+  /** Score do crítico (0-100) — só presente se rodou */
+  criticScore?: number
 }
 
 export interface ConsultaRequest {
@@ -223,6 +234,175 @@ export interface AgentFitScores {
 
 /** Capacidades multimodais. */
 export type ModelCapability = 'text' | 'image' | 'audio' | 'video'
+
+// ── Pipeline multi-agente (espelha functions/src/agents/types.ts) ─────────
+
+export type AgentRole =
+  | 'orchestrator'
+  | 'researcher-internal'
+  | 'researcher-web'
+  | 'compiler'
+  | 'legal-writer'
+  | 'critic'
+
+export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
+  'orchestrator':        'Orquestrador',
+  'researcher-internal': 'Pesquisador Interno',
+  'researcher-web':      'Pesquisador Web',
+  'compiler':            'Compilador',
+  'legal-writer':        'Redator Jurídico',
+  'critic':              'Crítico',
+}
+
+export const AGENT_ROLE_ICONS: Record<AgentRole, string> = {
+  'orchestrator':        '🧭',
+  'researcher-internal': '🔍',
+  'researcher-web':      '🌐',
+  'compiler':            '📚',
+  'legal-writer':        '⚖️',
+  'critic':              '🎯',
+}
+
+export type EffortLevel = 'rapido' | 'medio' | 'profundo'
+
+export const EFFORT_LABELS: Record<EffortLevel, string> = {
+  rapido:   'Rápido',
+  medio:    'Médio',
+  profundo: 'Profundo',
+}
+
+export const EFFORT_DESCRIPTIONS: Record<EffortLevel, string> = {
+  rapido:   'Resposta direta, sem crítico — até 3 iterações',
+  medio:    'Equilibrado, crítico avalia 1 vez — até 6 iterações',
+  profundo: 'Investigação completa, crítico avalia 2x — até 10 iterações',
+}
+
+export type Intent =
+  | 'document-retrieval'
+  | 'legal-analysis'
+  | 'simple-question'
+  | 'out-of-scope'
+  | 'refusal'
+
+export interface ResearchPoint {
+  id: string
+  query: string
+  keywords: string[]
+  priority: 'high' | 'medium' | 'low'
+  expectedSourceTypes: string[]
+  prefersRecent: boolean
+}
+
+export interface OrchestratorPlan {
+  intent: Intent
+  reasoning: string
+  points: ResearchPoint[]
+  requiresWebSearch: boolean
+  requiresLegalWriting: boolean
+  requiresCompilation: boolean
+  requiresInternalSearch: boolean
+  detectedAreas?: string[]
+  outOfScopeReason?: string
+  refusalReason?: string
+}
+
+export interface SourceRefLite {
+  id: string
+  docId: string
+  title: string
+  section?: string
+  url?: string
+  type: string
+  relevance: number
+  snippet: string
+  date?: string
+  verified: boolean
+}
+
+export interface AgentRun {
+  id: string
+  role: AgentRole
+  startedAt: string
+  finishedAt?: string
+  durationMs?: number
+  status: 'pending' | 'success' | 'error' | 'skipped'
+  error?: string
+  notes?: string
+}
+
+export interface ResearchConfig {
+  maxSourcesPerPoint: number
+  maxTotalSources: number
+  preferRecentDays: number
+  compilationMode: 'concise' | 'detailed' | 'raw'
+  minRelevanceScore: number
+  enableAutoLegalWriting: boolean
+  intradayRecencyBoost: number
+}
+
+export const DEFAULT_RESEARCH_CONFIG: ResearchConfig = {
+  maxSourcesPerPoint: 5,
+  maxTotalSources: 12,
+  preferRecentDays: 365,
+  compilationMode: 'detailed',
+  minRelevanceScore: 0.5,
+  enableAutoLegalWriting: false,
+  intradayRecencyBoost: 0.2,
+}
+
+export type WebSearchProvider = 'tavily' | 'serper' | 'brave' | 'perplexity' | 'mprs-intranet'
+
+export const WEB_SEARCH_PROVIDER_LABELS: Record<WebSearchProvider, string> = {
+  'tavily':         'Tavily (recomendado)',
+  'serper':         'Serper (Google)',
+  'brave':          'Brave Search',
+  'perplexity':     'Perplexity (sonar)',
+  'mprs-intranet':  'MPRS Intranet',
+}
+
+export interface WebSearchConfig {
+  provider: WebSearchProvider
+  apiKey?: string
+  enabled: boolean
+  maxResultsPerQuery: number
+  restrictDomains?: string[]
+  restrictToBR?: boolean
+  safeSearch: boolean
+  recencyDays?: number
+}
+
+export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
+  provider: 'tavily',
+  enabled: false,
+  maxResultsPerQuery: 5,
+  restrictToBR: true,
+  safeSearch: true,
+  recencyDays: 365,
+}
+
+export interface IntranetConfig {
+  enabled: boolean
+  baseUrl: string
+  authMethod: 'form' | 'basic' | 'cookie' | 'sso-redirect'
+  username?: string
+  password?: string
+  loginPath?: string
+  searchPath?: string
+  documentPathPrefix?: string
+  cookieDomain?: string
+  cookieName?: string
+  customHeaders?: Record<string, string>
+  testStatus: 'untested' | 'success' | 'failed'
+  testMessage?: string
+  testAt?: string
+}
+
+export const DEFAULT_INTRANET_CONFIG: IntranetConfig = {
+  enabled: false,
+  baseUrl: '',
+  authMethod: 'form',
+  testStatus: 'untested',
+}
 
 /** Categorias semânticas de função do modelo (derivada de tier + agentFit). */
 export type ModelRole =

@@ -63,6 +63,9 @@ export function useChat() {
           intent: response.intent,
           latencyMs: response.latencyMs,
           tokens: response.usage,
+          agentRuns: response.agentRuns,
+          iterations: response.iterations,
+          criticScore: response.criticScore,
           createdAt: new Date().toISOString(),
         }
         addMessage(assistantMessage)

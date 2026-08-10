@@ -18,6 +18,7 @@ import { Check, Copy, ThumbsUp, ThumbsDown } from 'lucide-react'
 import type { ChatMessage, SourceRef } from '@/types'
 import { AgentAvatar } from './AgentAvatar'
 import { useAuthStore } from '@/stores/authStore'
+import { AgentRunIndicatorCompact } from './AgentRunIndicator'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -141,6 +142,15 @@ export function MessageBubble({ message, onFeedback }: MessageBubbleProps) {
               )}
             </div>
           </div>
+        )}
+
+        {/* Agent Run Indicator (multi-agente pipeline) */}
+        {(message.agentRuns !== undefined || message.iterations !== undefined || message.criticScore !== undefined) && (
+          <AgentRunIndicatorCompact
+            agentRunsCount={message.agentRuns}
+            iterations={message.iterations}
+            criticScore={message.criticScore}
+          />
         )}
 
         {/* Actions */}
