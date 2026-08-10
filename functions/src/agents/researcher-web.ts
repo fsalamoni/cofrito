@@ -7,16 +7,18 @@
  *  - Serper     (https://serper.dev) — Google search
  *  - Brave      (https://brave.com/search/api) — search
  *  - Perplexity (https://docs.perplexity.ai) — sonar
+ *  - DataJud    (https://datajud-wiki.cnj.jus.br) — jurisprudência (chave pública)
  *  - MPRS Intranet (auth customizado)
  *
  * A busca web SÓ é executada se:
  *  - allowExternal = true (ativado pelo user no chat)
  *  - webSearchConfig.enabled = true (admin master ligou)
- *  - webSearchConfig.apiKey está definida
+ *  - (apiKey definida) — exceto DataJud que tem chave pública
  *  - requiresWebSearch = true (decisão do orchestrator)
  */
 
 import type { ResearchPoint, SourceRef, WebSearchConfig, IntranetConfig } from './types'
+import { searchDataJud, type DataJudTribunalAlias } from '../services/datajud'
 
 export interface ResearcherWebInput {
   points: ResearchPoint[]
@@ -80,6 +82,8 @@ async function searchWebForPoint(
       return searchBrave(query, webConfig, point)
     case 'perplexity':
       return searchPerplexity(query, webConfig, point)
+    case 'datajud':
+      return searchDataJudProvider(query, webConfig, point)
     case 'mprs-intranet':
       return searchMprsIntranet(query, webConfig, intranetConfig, point)
     default:
@@ -315,6 +319,54 @@ function extractMetaDescription(html: string, pos: number): string {
   const window = html.slice(pos, pos + 600)
   const m = window.match(/<p[^>]*>([^<]{30,400})<\/p>/i)
   return m ? m[1].trim() : ''
+}
+
+// ── DataJud (CNJ — jurisprudência) ────────────────────────────────────────
+
+async function searchDataJudProvider(
+  query: string,
+  config: WebSearchConfig,
+  _point: ResearchPoint,
+): Promise<SourceRef[]> {
+  // DataJud tem chave pública do CNJ — não exige configuração do admin.
+  const tribunals = (config.datajudTribunals && config.datajudTribunals.length > 0
+    ? config.datajudTribunals
+    : ['stj', 'trf4', 'tjrs']) as DataJudTribunalAlias[]
+
+  const result = await searchDataJud(query, {
+    tribunals,
+    maxPerTribunal: config.maxResultsPerQuery,
+    apiKey: config.apiKey, // pode ser vazio (usa default público)
+  })
+
+  return result.hits.map((h) => {
+    // Normalizar score Elasticsearch (0-∞) para 0-1
+    const relevance = Math.min(1, h.score / 10)
+    const snippet = h.ementa
+      ? h.ementa.slice(0, 600)
+      : h.texto
+        ? h.texto.slice(0, 600)
+        : ''
+    return {
+      id: `datajud-${h.tribunal}-${h.id}`,
+      docId: `datajud-${h.tribunal}-${h.numero || h.id}`,
+      title: h.ementa
+        ? h.ementa.slice(0, 120).replace(/\s+/g, ' ').trim()
+        : `${h.tribunalName} — ${h.classe || ''} ${h.numero || ''}`.trim(),
+      section: h.classe,
+      url: h.url,
+      type: 'jurisprudence' as const,
+      relevance,
+      snippet,
+      fullText: h.texto,
+      date: h.data,
+      sourcePath: `datajud/${h.tribunal}`,
+      verified: true,
+      tribunal: h.tribunal,
+      tribunalName: h.tribunalName,
+      numero: h.numero,
+    }
+  })
 }
 
 function inferTypeFromUrl(url: string): SourceRef['type'] {

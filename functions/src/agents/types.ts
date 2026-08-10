@@ -135,6 +135,11 @@ export interface SourceRef {
   date?: string                  // data do documento (ISO)
   sourcePath?: string            // caminho de origem (Storage, web, intranet)
   verified: boolean              // true = confirmado no banco
+  /** Tribunal (DataJud) */
+  tribunal?: string
+  tribunalName?: string
+  /** Número do processo (DataJud) */
+  numero?: string
 }
 
 export interface AgentRun {
@@ -219,25 +224,67 @@ export const DEFAULT_RESEARCH_CONFIG: ResearchConfig = {
   intradayRecencyBoost: 0.2,
 }
 
-export type WebSearchProvider = 'tavily' | 'serper' | 'brave' | 'perplexity' | 'mprs-intranet'
+export type WebSearchProvider =
+  | 'tavily'
+  | 'serper'
+  | 'brave'
+  | 'perplexity'
+  | 'mprs-intranet'
+  | 'datajud'
 
 export const WEB_SEARCH_PROVIDER_LABELS: Record<WebSearchProvider, string> = {
-  'tavily':         'Tavily (recomendado)',
-  'serper':         'Serper (Google)',
+  'tavily':         'Tavily (busca IA)',
+  'serper':         'Serper (Google Search API)',
   'brave':          'Brave Search',
-  'perplexity':     'Perplexity (sonar)',
-  'mprs-intranet':  'MPRS Intranet',
+  'perplexity':     'Perplexity (sonar com IA)',
+  'mprs-intranet':  'MPRS Intranet (acesso autenticado)',
+  'datajud':        'DataJud (CNJ — jurisprudência)',
+}
+
+export const WEB_SEARCH_PROVIDER_DESCRIPTIONS: Record<WebSearchProvider, string> = {
+  'tavily':
+    'Tavily é um motor de busca otimizado para LLMs/IA. Retorna resultados com conteúdo extraído. ' +
+    'Tem plano gratuito (1000 buscas/mês) e pago. Site: tavily.com',
+  'serper':
+    'Serper.dev é a API de busca do Google (similar ao Programmable Search Engine). ' +
+    'Tem plano gratuito limitado. Site: serper.dev',
+  'brave':
+    'Brave Search API — index próprio, focado em privacidade. Tem plano gratuito limitado. ' +
+    'Site: brave.com/search/api',
+  'perplexity':
+    'Perplexity (modelo "sonar") faz busca web + IA e devolve resposta sintetizada com citações. ' +
+    'Custo: ~$1/M tokens input. Site: docs.perplexity.ai',
+  'mprs-intranet':
+    'Acessa a intranet do MP/RS com login/senha configurados. Faz parte do corpus interno ' +
+    '(sempre consultada quando habilitada, sem precisar do toggle "Pesquisa web").',
+  'datajud':
+    'DataJud é a API pública do CNJ (Conselho Nacional de Justiça) para consulta de ' +
+    'jurisprudência em todos os tribunais brasileiros. CHAVE PÚBLICA (não precisa configurar). ' +
+    'É a fonte oficial e confiável para jurisprudência.',
+}
+
+export const WEB_SEARCH_PROVIDER_COSTS: Record<WebSearchProvider, string> = {
+  'tavily':         'Grátis até 1000 buscas/mês; Pro: $30/mês (5k buscas)',
+  'serper':         'Grátis até 2.500 queries; depois ~$1/1k queries',
+  'brave':          'Grátis até 2000 queries/mês; Pro: $3-9/CPM',
+  'perplexity':     '~$1/M tokens (sonar-small); ~$3/M tokens (sonar-pro)',
+  'mprs-intranet':  'Sem custo (acesso institucional)',
+  'datajud':        'Sem custo (API pública)',
 }
 
 export interface WebSearchConfig {
   provider: WebSearchProvider
-  apiKey?: string                   // criptografada em produção
+  apiKey?: string                   // chave do provedor
   enabled: boolean
   maxResultsPerQuery: number        // default 5
   restrictDomains?: string[]        // limitar domínios (ex: ['mp.rs.gov.br'])
   restrictToBR?: boolean            // default true
   safeSearch: boolean               // default true
   recencyDays?: number              // priorizar resultados recentes
+  /** Tribunais do DataJud a consultar (default: STJ + TRF4 + TJRS — MP/RS) */
+  datajudTribunals?: string[]
+  /** Modelo de busca opcional (Perplexity: 'sonar' / 'sonar-pro'; outros provedores ignoram) */
+  searchModel?: string
 }
 
 export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
@@ -247,6 +294,7 @@ export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   restrictToBR: true,
   safeSearch: true,
   recencyDays: 365,
+  datajudTribunals: ['stj', 'trf4', 'tjrs'],
 }
 
 export interface IntranetConfig {
