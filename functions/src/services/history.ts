@@ -2,7 +2,7 @@
  * History — lê e escreve mensagens.
  */
 
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore'
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -59,10 +59,12 @@ export async function saveMessage(
     createdAt: now,
   })
 
-  // Atualiza lastActivityAt e messageCount
+  // Atualiza lastActivityAt (sem count() que pode falhar e custar caro)
   await db.doc(`users/${userId}/conversations/${convId}`).update({
     lastActivityAt: now,
-    messageCount: (await db.collection(`users/${userId}/conversations/${convId}/messages`).count().get()).data().count,
+    // Incrementa messageCount de forma atômica (não precisa de count())
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    messageCount: FieldValue.increment(1) as any,
   })
 
   return { conversationId: convId, messageId: messageRef.id }

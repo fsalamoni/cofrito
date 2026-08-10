@@ -284,9 +284,12 @@ export const testIntranet = onCall({ cors: true, enforceAppCheck: false }, async
 export const getPublicResearchStatus = onRequest({ cors: true }, async (_req: Request, res) => {
   res.set('Access-Control-Allow-Origin', '*')
   try {
-    const research = await getDb().doc('admin-config/research').get()
-    const web = await getDb().doc('admin-config/web-search').get()
-    const intranet = await getDb().doc('admin-config/intranet').get()
+    // Usar getFirestore() DIRETAMENTE (não via getDb() wrapper) para garantir
+    // que o admin SDK pega a app default do runtime do Firebase Functions
+    const db = getFirestore()
+    const research = await db.doc('admin-config/research').get()
+    const web = await db.doc('admin-config/web-search').get()
+    const intranet = await db.doc('admin-config/intranet').get()
     res.json({
       research: research.exists ? research.data() : DEFAULT_RESEARCH_CONFIG,
       webSearchEnabled: web.exists && (web.data() as WebSearchConfig).enabled,

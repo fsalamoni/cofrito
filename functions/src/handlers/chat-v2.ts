@@ -203,8 +203,9 @@ export const chatV2 = onCall(
         content = `⚠️ Erro no pipeline de agentes: ${err?.message ?? 'desconhecido'}.`
       }
 
-      // 9. Persistência
-      await saveMessage(userId, conversationId ?? '', 'user', message)
+      // 9. Persistência (try/catch para NÃO matar a request se Firestore falhar)
+      let newConvId = conversationId || ''
+      let messageId = `msg-${Date.now()}`
       const sources = chunks.map((c) => ({
         docId: c.docId,
         chunkId: c.id,
@@ -212,14 +213,23 @@ export const chatV2 = onCall(
         title: c.section || c.docId,
         relevance: c.similarity,
       }))
-      const { conversationId: newConvId, messageId } = await saveMessage(
-        userId,
-        conversationId ?? '',
-        'assistant',
-        content,
-        sources,
-        tokensUsed.total,
-      )
+      try {
+        await saveMessage(userId, conversationId ?? '', 'user', message)
+        const saved = await saveMessage(
+          userId,
+          conversationId ?? '',
+          'assistant',
+          content,
+          sources,
+          tokensUsed.total,
+        )
+        newConvId = saved.conversationId
+        messageId = saved.messageId
+      } catch (saveErr) {
+        const e = saveErr as { message?: string }
+        logger.error('chat.saveMessage falhou (continuando sem persistência)', { err: e?.message })
+        // Continua sem falhar a request
+      }
 
       const latencyMs = Date.now() - start
       logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed, allowExternal, provider, model, agentRunsCount, iterations, criticScore })
