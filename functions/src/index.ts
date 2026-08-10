@@ -34,6 +34,9 @@ setGlobalOptions({
   cpu: 1,
   concurrency: 80,
   timeoutSeconds: 60,
+  // App Check desabilitado por enquanto (configurar reCAPTCHA enterprise depois)
+  // Sem isso, as functions retornam 403 para clientes sem token App Check
+  enforceAppCheck: false,
 })
 
 // Public
