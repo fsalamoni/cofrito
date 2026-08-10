@@ -23,7 +23,8 @@ export interface UserProfile {
 }
 
 export async function getUserProfile(userId: string): Promise<UserProfile> {
-  let data: Record<string, unknown> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let data: any = {}
   try {
     const db = getFirestore()
     const userDoc = await db.doc(`users/${userId}`).get()
