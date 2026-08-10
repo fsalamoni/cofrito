@@ -23,9 +23,15 @@ export interface UserProfile {
 }
 
 export async function getUserProfile(userId: string): Promise<UserProfile> {
-  const db = getFirestore()
-  const userDoc = await db.doc(`users/${userId}`).get()
-  const data = userDoc.data() || {}
+  let data: Record<string, unknown> = {}
+  try {
+    const db = getFirestore()
+    const userDoc = await db.doc(`users/${userId}`).get()
+    data = (userDoc.data() as Record<string, unknown>) || {}
+  } catch (err) {
+    // Se admin SDK falhar, retorna profile vazio (default) em vez de quebrar
+    console.warn('getUserProfile: failed to read user doc, returning default', { userId, err: (err as Error)?.message })
+  }
   return {
     uid: userId,
     displayName: data.displayName || 'Usuário',
