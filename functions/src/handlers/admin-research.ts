@@ -45,7 +45,7 @@ function requireAdminMaster(uid: string | undefined): asserts uid is string {
 
 // ── Research ───────────────────────────────────────────────────────────────
 
-export const getResearchConfig = onCall({ cors: true }, async (req): Promise<ResearchConfig | null> => {
+export const getResearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<ResearchConfig | null> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -55,7 +55,7 @@ export const getResearchConfig = onCall({ cors: true }, async (req): Promise<Res
   return snap.data() as ResearchConfig
 })
 
-export const saveResearchConfig = onCall({ cors: true }, async (req): Promise<{ ok: true; savedAt: string }> => {
+export const saveResearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: true; savedAt: string }> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -88,7 +88,7 @@ export const saveResearchConfig = onCall({ cors: true }, async (req): Promise<{ 
 
 // ── Web Search ─────────────────────────────────────────────────────────────
 
-export const getWebSearchConfig = onCall({ cors: true }, async (req): Promise<WebSearchConfig | null> => {
+export const getWebSearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<WebSearchConfig | null> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -100,7 +100,7 @@ export const getWebSearchConfig = onCall({ cors: true }, async (req): Promise<We
   return { ...data, apiKey: data.apiKey ? '••••••' : undefined, _hasApiKey: !!data.apiKey } as any
 })
 
-export const saveWebSearchConfig = onCall({ cors: true }, async (req): Promise<{ ok: true; savedAt: string }> => {
+export const saveWebSearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: true; savedAt: string }> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -137,7 +137,7 @@ export const saveWebSearchConfig = onCall({ cors: true }, async (req): Promise<{
  * Testa a conexão com o provider de web search configurado.
  * Faz uma query dummy e devolve o tempo de resposta + número de resultados.
  */
-export const testWebSearch = onCall({ cors: true }, async (req): Promise<{ ok: boolean; resultCount: number; latencyMs: number; sample?: unknown; error?: string }> => {
+export const testWebSearch = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: boolean; resultCount: number; latencyMs: number; sample?: unknown; error?: string }> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -178,7 +178,7 @@ export const testWebSearch = onCall({ cors: true }, async (req): Promise<{ ok: b
 
 // ── Intranet ───────────────────────────────────────────────────────────────
 
-export const getIntranetConfig = onCall({ cors: true }, async (req): Promise<IntranetConfig | null> => {
+export const getIntranetConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<IntranetConfig | null> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -190,7 +190,7 @@ export const getIntranetConfig = onCall({ cors: true }, async (req): Promise<Int
   return { ...data, password: data.password ? '••••••' : undefined, _hasPassword: !!data.password } as any
 })
 
-export const saveIntranetConfig = onCall({ cors: true }, async (req): Promise<{ ok: true; savedAt: string }> => {
+export const saveIntranetConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: true; savedAt: string }> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -228,7 +228,7 @@ export const saveIntranetConfig = onCall({ cors: true }, async (req): Promise<{ 
 /**
  * Testa a autenticação e o acesso à intranet MPRS.
  */
-export const testIntranet = onCall({ cors: true }, async (req): Promise<{ ok: boolean; latencyMs: number; status?: number; error?: string; sample?: unknown }> => {
+export const testIntranet = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: boolean; latencyMs: number; status?: number; error?: string; sample?: unknown }> => {
   requireAdminMaster(req.auth?.uid)
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
@@ -283,13 +283,19 @@ export const testIntranet = onCall({ cors: true }, async (req): Promise<{ ok: bo
  */
 export const getPublicResearchStatus = onRequest({ cors: true }, async (_req: Request, res) => {
   res.set('Access-Control-Allow-Origin', '*')
-  const research = await getDb().doc('admin-config/research').get()
-  const web = await getDb().doc('admin-config/web-search').get()
-  const intranet = await getDb().doc('admin-config/intranet').get()
-  res.json({
-    research: research.exists ? research.data() : DEFAULT_RESEARCH_CONFIG,
-    webSearchEnabled: web.exists && (web.data() as WebSearchConfig).enabled,
-    webSearchProvider: web.exists ? (web.data() as WebSearchConfig).provider : null,
-    intranetEnabled: intranet.exists && (intranet.data() as IntranetConfig).enabled,
-  })
+  try {
+    const research = await getDb().doc('admin-config/research').get()
+    const web = await getDb().doc('admin-config/web-search').get()
+    const intranet = await getDb().doc('admin-config/intranet').get()
+    res.json({
+      research: research.exists ? research.data() : DEFAULT_RESEARCH_CONFIG,
+      webSearchEnabled: web.exists && (web.data() as WebSearchConfig).enabled,
+      webSearchProvider: web.exists ? (web.data() as WebSearchConfig).provider : null,
+      intranetEnabled: intranet.exists && (intranet.data() as IntranetConfig).enabled,
+    })
+  } catch (err) {
+    const e = err as { message?: string }
+    logger.error('getPublicResearchStatus failed', { err: e?.message })
+    res.status(500).json({ error: e?.message ?? 'Internal error' })
+  }
 })

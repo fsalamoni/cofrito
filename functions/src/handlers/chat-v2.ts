@@ -23,14 +23,14 @@ import { logAnalytics } from '../services/analytics'
 import { filterPII } from '../services/anonymizer'
 
 const ChatRequestSchema = z.object({
-  conversationId: z.string().optional(),
+  conversationId: z.string().nullable().optional(),
   message: z.string().min(1).max(2000),
   allowExternal: z.boolean().optional().default(false),
   requestLegalAnalysis: z.boolean().optional().default(false),
   effort: z.enum(['rapido', 'padrao', 'profundo']).optional().default('padrao'),
   context: z.object({
-    documentId: z.string().optional(),
-    intent: z.string().optional(),
+    documentId: z.string().nullable().optional(),
+    intent: z.string().nullable().optional(),
   }).optional(),
 })
 
@@ -54,7 +54,7 @@ export const chatV2 = onCall(
       const sanitizedText = filterPII(message).text
 
       // 2. Histórico
-      const recentHistory = await getRecentHistory(userId, conversationId, 6); logger.debug("history.size", { size: recentHistory.length })
+      const recentHistory = await getRecentHistory(userId, conversationId || undefined, 6); logger.debug("history.size", { size: recentHistory.length })
 
       // 3. Retrieval
       const chunks = await retrieveRelevantChunks(sanitizedText, { topK: 8, minSimilarity: 0.55 })
