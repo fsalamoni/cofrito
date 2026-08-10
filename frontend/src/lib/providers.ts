@@ -2,11 +2,15 @@
  * Catálogo de providers de LLM suportados.
  *
  * Lista completa e curada de modelos de cada provider.
- * Atualizado em 2026-08-07.
+ * Atualizado em 2026-08-10.
  * OpenRouter: 332 modelos fetched da API oficial.
  * Outros: catálogos oficiais (Google, OpenAI, Anthropic, etc.) + modelos conhecidos.
+ *
+ * Cada LLMModelInfo é enriquecido automaticamente (tier, capabilities,
+ * agentFit, isFree, role) via `model-scoring.ts` e `model-overrides.ts`.
  */
 import type { LLMProvider, LLMModelInfo } from '@/types'
+import { enrichModelsWithRole, type EnrichedModel } from './model-scoring'
 
 export interface ProviderInfo {
   id: LLMProvider
@@ -1247,4 +1251,32 @@ export const PROVIDERS: ProviderInfo[] = [
 
 export function getProviderInfo(id: LLMProvider): ProviderInfo | undefined {
   return PROVIDERS.find((p) => p.id === id)
+}
+
+// ── Modelos enriquecidos (com tier, capabilities, agentFit, role) ──────────
+
+/**
+ * Devolve os modelos de um provider já enriquecidos:
+ * - tier (fast/balanced/premium) por override ou heurística
+ * - capabilities (text/image/audio/video)
+ * - inputCost / outputCost (USD/1M tokens; 0 = grátis)
+ * - isFree
+ * - agentFit (extraction, synthesis, reasoning, writing) — normalizado por provider
+ *   (top do provider = 10, pior = 1) para comparação justa
+ * - role (premium, balanced, fast, reasoning, synthesis, extraction, writing, multimodal, free)
+ */
+export function getEnrichedModelsForProvider(id: LLMProvider): EnrichedModel[] {
+  const p = getProviderInfo(id)
+  if (!p) return []
+  return enrichModelsWithRole(p.models)
+}
+
+/** Devolve UM modelo enriquecido pelo id do provider + id do modelo. */
+export function getEnrichedModel(providerId: LLMProvider, modelId: string): EnrichedModel | undefined {
+  return getEnrichedModelsForProvider(providerId).find((m) => m.id === modelId)
+}
+
+/** Devolve todos os modelos enriquecidos de TODOS os providers (catálogo consolidado). */
+export function getAllEnrichedModels(): EnrichedModel[] {
+  return PROVIDERS.flatMap((p) => enrichModelsWithRole(p.models))
 }

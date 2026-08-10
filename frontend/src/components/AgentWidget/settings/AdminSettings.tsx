@@ -5,14 +5,15 @@
  *  1. LLM Global — define o LLM padrão para todos os usuários
  *  2. Administradores — lista, concede e revoga admins
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { firestore } from '@/lib/firebase'
 import { useAuth } from '@/hooks/useAuth'
 import { useLLMConfig } from '@/hooks/useLLMConfig'
-import { PROVIDERS, getProviderInfo } from '@/lib/providers'
+import { PROVIDERS, getProviderInfo, getEnrichedModelsForProvider } from '@/lib/providers'
 import { Users, Globe, Shield, Trash2, Plus, AlertCircle, Check, X, Loader2, Database } from 'lucide-react'
-import type { LLMProvider, LLMConfig, LLMModelInfo } from '@/types'
+import type { LLMProvider, LLMConfig } from '@/types'
+import { ModelSelectorTable } from './ModelSelectorTable'
 
 type Tab = 'llm' | 'admins'
 
@@ -255,51 +256,16 @@ function GlobalLLMFormWithSelect({
   const [temperature, setTemperature] = useState<number>(initial?.temperature ?? 0.3)
   const [maxTokens, setMaxTokens] = useState<number>(initial?.maxTokens ?? 2000)
   const [showKey, setShowKey] = useState(false)
-  const [models, setModels] = useState<LLMModelInfo[]>([])
-  const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
 
   const providerInfo = getProviderInfo(provider)
 
-  // Quando muda o provider, atualiza os modelos
-  useEffect(() => {
-    if (!providerInfo) return
-    setModels(providerInfo.models)
-    if (!model && providerInfo.models.length > 0) {
-      setModel(providerInfo.models[0].id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider])
-
-  async function handleLoadModels() {
-    if (!apiKey && provider !== 'ollama') {
-      setFeedback({ ok: false, msg: 'Insira a API key para listar modelos do provider' })
-      return
-    }
-    setLoadingModels(true)
-    setFeedback(null)
-    try {
-      const { api } = await import('@/lib/api')
-      const result = await api.listLLMModels(provider, apiKey, baseUrl || providerInfo?.defaultBaseUrl)
-      if (result.data && result.data.length > 0) {
-        setModels(
-          result.data.map((m) => ({
-            id: m.id,
-            name: m.name ?? m.id,
-            contextWindow: m.contextWindow,
-          })),
-        )
-        setFeedback({ ok: true, msg: `${result.data.length} modelos carregados do provider` })
-      } else {
-        setFeedback({ ok: false, msg: 'Nenhum modelo retornado. Usando catálogo local.' })
-      }
-    } catch (err: any) {
-      setFeedback({ ok: false, msg: err.message ?? 'Erro ao listar. Usando catálogo local.' })
-    } finally {
-      setLoadingModels(false)
-    }
-  }
+  // Modelos enriquecidos do provider selecionado (com tier, scores, custos, etc.)
+  const enrichedModels = useMemo(
+    () => getEnrichedModelsForProvider(provider),
+    [provider],
+  )
 
   async function handleSave() {
     if (!apiKey && provider !== 'ollama') {
@@ -409,39 +375,25 @@ function GlobalLLMFormWithSelect({
         </div>
       )}
 
-      {/* MODELO */}
+      {/* TABELA RICA DE MODELOS — clique em uma linha para selecionar */}
       <div style={formFieldStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <label style={formLabelStyle}>
-            Modelo
-            {models.length > 0 && (
-              <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>
-                · {models.length} disponíveis
-              </span>
-            )}
-          </label>
-          {providerInfo?.supportsModelListing && (
-            <button
-              type="button"
-              onClick={handleLoadModels}
-              disabled={loadingModels || (!apiKey && provider !== 'ollama')}
-              style={smallBtnStyle}
-              title="Buscar modelos do provider via API"
-            >
-              {loadingModels ? <Loader2 size={10} className="cofrito-spin" /> : '↻'}
-              Buscar do provider
-            </button>
+        <label style={formLabelStyle}>
+          Modelo
+          {enrichedModels.length > 0 && (
+            <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>
+              · {enrichedModels.length} modelos com notas e custos
+            </span>
           )}
-        </div>
-        {models.length > 0 ? (
-          <select value={model} onChange={(e) => setModel(e.target.value)} style={formSelectStyle}>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name ?? m.id}
-                {m.contextWindow ? ` · ${formatCtx(m.contextWindow)}` : ''}
-              </option>
-            ))}
-          </select>
+        </label>
+        {enrichedModels.length > 0 ? (
+          <ModelSelectorTable
+            models={enrichedModels}
+            selectedId={model}
+            onSelect={(m) => setModel(m.id)}
+            showProvider={false}
+            maxHeight={360}
+            compact
+          />
         ) : (
           <input
             type="text"
@@ -454,7 +406,7 @@ function GlobalLLMFormWithSelect({
         )}
         {model && (
           <div style={formHintStyle}>
-            ID selecionado: <code style={{ background: '#f1f5f9', padding: '0 4px', borderRadius: 3 }}>{model}</code>
+            Modelo selecionado: <code style={{ background: '#f1f5f9', padding: '0 4px', borderRadius: 3 }}>{model}</code>
           </div>
         )}
       </div>
@@ -512,18 +464,12 @@ function GlobalLLMFormWithSelect({
       <div style={providerSummaryStyle}>
         <strong style={{ fontSize: 11 }}>📋 {providerInfo?.label}</strong>
         <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>
-          {providerInfo?.models.length} modelos no catálogo local.
+          {enrichedModels.length} modelos com notas de capacidade normalizadas (top do provider = 10).
           {providerInfo?.supportsModelListing && ' Suporta listagem dinâmica via API.'}
         </div>
       </div>
     </div>
   )
-}
-
-function formatCtx(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M tokens`
-  if (n >= 1000) return `${(n / 1000).toFixed(0)}k tokens`
-  return `${n} tokens`
 }
 
 const tabBarStyle: React.CSSProperties = {
@@ -719,20 +665,6 @@ const eyeBtnStyle: React.CSSProperties = {
   padding: 4,
   fontSize: 14,
   lineHeight: 1,
-}
-
-const smallBtnStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 3,
-  background: 'transparent',
-  border: '1px solid #d1d5db',
-  borderRadius: 4,
-  padding: '2px 6px',
-  fontSize: 10,
-  color: '#6b7280',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
 }
 
 const saveBtnStyle: React.CSSProperties = {

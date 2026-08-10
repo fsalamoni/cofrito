@@ -191,5 +191,46 @@ export interface LLMModelInfo {
   contextWindow?: number
   supportsTools?: boolean
   supportsVision?: boolean
+  /** Tier/perfil do modelo: rápido, equilibrado ou premium. */
+  tier?: 'fast' | 'balanced' | 'premium'
+  /** Capacidades: o que o modelo consegue trabalhar (texto/imagem/áudio/vídeo). */
+  capabilities?: ModelCapability[]
+  /** Custo por 1M tokens de ENTRADA em USD (0 = gratuito). */
+  inputCost?: number
+  /** Custo por 1M tokens de SAÍDA em USD (0 = gratuito). */
+  outputCost?: number
+  /** Se o modelo é gratuito (custos 0 ou marcados como free). */
+  isFree?: boolean
+  /** Notas de 0-10 do modelo em cada capacidade (extração, síntese, raciocínio, redação). */
+  agentFit?: AgentFitScores
+  /** Descrição curta do modelo. */
+  description?: string
 }
+
+/** Categorias de capacidade de agente — para o qual o modelo é mais apto. */
+export type AgentCategory = 'extraction' | 'synthesis' | 'reasoning' | 'writing'
+
+/** Notas 0-10 do modelo em cada categoria. 10 = melhor da classe, 1-2 = fraco. */
+export interface AgentFitScores {
+  extraction: number
+  synthesis: number
+  reasoning: number
+  writing: number
+}
+
+/** Capacidades multimodais. */
+export type ModelCapability = 'text' | 'image' | 'audio' | 'video'
+
+/** Categorias semânticas de função do modelo (derivada de tier + agentFit). */
+export type ModelRole =
+  | 'premium'        // topo de linha (Opus, o3, Sonnet 4)
+  | 'balanced'       // equilibrado (Sonnet, Gemini Pro, GPT-4.1)
+  | 'fast'           // rápido/econômico (Haiku, Flash, Mini, Nano, Lite)
+  | 'reasoning'      // raciocínio profundo (R1, o3, o4, Thinking)
+  | 'synthesis'      // especializado em síntese (Compilador, Revisor)
+  | 'extraction'     // especializado em extração (Triagem, Fact-Checker)
+  | 'writing'        // especializado em redação (Redator)
+  | 'multimodal'     // aceita/gerar imagem, áudio, vídeo
+  | 'free'           // gratuito
+
 

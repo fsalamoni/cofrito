@@ -7,11 +7,12 @@
  *  - Customize baseUrl, temperature, maxTokens
  *  - Salva em users/{uid}/llmConfig
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Eye, EyeOff, Save, Trash2, RefreshCw, Check, X, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
-import { PROVIDERS, getProviderInfo } from '@/lib/providers'
+import { PROVIDERS, getProviderInfo, getEnrichedModelsForProvider } from '@/lib/providers'
 import { useLLMConfig } from '@/hooks/useLLMConfig'
-import type { LLMConfig, LLMProvider, LLMModelInfo } from '@/types'
+import type { LLMConfig, LLMProvider } from '@/types'
+import { ModelSelectorTable } from './ModelSelectorTable'
 
 export function LLMSettings() {
   const {
@@ -31,12 +32,17 @@ export function LLMSettings() {
   const [temperature, setTemperature] = useState<number>(userConfig?.temperature ?? 0.3)
   const [maxTokens, setMaxTokens] = useState<number>(userConfig?.maxTokens ?? 2000)
   const [showKey, setShowKey] = useState(false)
-  const [availableModels, setAvailableModels] = useState<LLMModelInfo[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
 
   const providerInfo = getProviderInfo(provider)
+
+  // Modelos enriquecidos do provider selecionado (com tier, scores, custos)
+  const enrichedModels = useMemo(
+    () => getEnrichedModelsForProvider(provider),
+    [provider],
+  )
 
   useEffect(() => {
     if (userConfig) {
@@ -50,17 +56,6 @@ export function LLMSettings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userConfig?.provider, userConfig?.model])
 
-  // Carregar modelos quando provider muda
-  useEffect(() => {
-    if (!providerInfo) return
-    setAvailableModels(providerInfo.models)
-    // Se o catálogo tem modelos e o user não tem um selecionado, pega o primeiro
-    if (!model && providerInfo.models.length > 0) {
-      setModel(providerInfo.models[0].id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider])
-
   async function handleLoadModels() {
     if (!apiKey && provider !== 'ollama') {
       setFeedback({ ok: false, msg: 'Insira a API key para listar modelos' })
@@ -69,8 +64,7 @@ export function LLMSettings() {
     setLoadingModels(true)
     try {
       const models = await listModels(provider, apiKey, baseUrl || providerInfo?.defaultBaseUrl)
-      setAvailableModels(models)
-      setFeedback({ ok: true, msg: `${models.length} modelos disponíveis` })
+      setFeedback({ ok: true, msg: `${models.length} modelos do provider retornados (catálogo local: ${enrichedModels.length})` })
     } catch (err: any) {
       setFeedback({ ok: false, msg: err.message ?? 'Erro ao listar modelos' })
     } finally {
@@ -238,10 +232,17 @@ export function LLMSettings() {
         </div>
       )}
 
-      {/* Model */}
+      {/* Model — TABELA RICA */}
       <div style={fieldStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <label style={fieldLabelStyle}>Modelo</label>
+          <label style={fieldLabelStyle}>
+            Modelo
+            {enrichedModels.length > 0 && (
+              <span style={{ color: '#9ca3af', fontWeight: 400, marginLeft: 4 }}>
+                · {enrichedModels.length} com notas e custos
+              </span>
+            )}
+          </label>
           {providerInfo?.supportsModelListing && (
             <button
               type="button"
@@ -254,15 +255,15 @@ export function LLMSettings() {
             </button>
           )}
         </div>
-        {availableModels.length > 0 ? (
-          <select value={model} onChange={(e) => setModel(e.target.value)} style={inputStyle}>
-            {availableModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name ?? m.id}
-                {m.contextWindow ? ` · ${formatContext(m.contextWindow)}` : ''}
-              </option>
-            ))}
-          </select>
+        {enrichedModels.length > 0 ? (
+          <ModelSelectorTable
+            models={enrichedModels}
+            selectedId={model}
+            onSelect={(m) => setModel(m.id)}
+            showProvider={false}
+            maxHeight={360}
+            compact
+          />
         ) : (
           <input
             type="text"
@@ -334,12 +335,6 @@ export function LLMSettings() {
       </div>
     </div>
   )
-}
-
-function formatContext(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M tokens`
-  if (n >= 1000) return `${(n / 1000).toFixed(0)}k tokens`
-  return `${n} tokens`
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────
