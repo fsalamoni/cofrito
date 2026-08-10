@@ -15,10 +15,7 @@
  * Apenas admin master pode ler/escrever (exceto get público para o user ver status).
  */
 
-import { HttpsError, onCall, onRequest, type Request } from
-
-logger.info("Function module loaded");
- 'firebase-functions/v2/https'
+import { HttpsError, onCall, onRequest, type Request } from 'firebase-functions/v2/https'
 import { getFirestore } from 'firebase-admin/firestore'
 import { logger } from 'firebase-functions'
 import {

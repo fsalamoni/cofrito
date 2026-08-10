@@ -13,10 +13,7 @@
  *        -H "Content-Type: application/json" \
  *        -d '{"email":"fsalamoni@gmail.com","secret":"..."}'
  */
-import { onCall, onRequest, HttpsError } from
-
-logger.info("Function module loaded");
- 'firebase-functions/v2/https'
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 

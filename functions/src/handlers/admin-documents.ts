@@ -10,10 +10,7 @@
  *  - adminGetSourcePaths / adminSetSourcePaths: configura paths de pesquisa
  *    (local / WebDAV / rede)
  */
-import { onCall, HttpsError } from
-
-logger.info("Function module loaded");
- 'firebase-functions/v2/https'
+import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { assertAdminMaster } from '../middleware/auth'

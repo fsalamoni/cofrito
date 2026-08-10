@@ -8,10 +8,7 @@
  *  3. Fallback: GEMINI_API_KEY do ambiente (legado, opcional)
  *  4. Stub mode (sem API key)
  */
-import { onCall, HttpsError } from
-
-logger.info("Function module loaded");
- 'firebase-functions/v2/https'
+import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
 import { z } from 'zod'
 import { getFirestore } from 'firebase-admin/firestore'

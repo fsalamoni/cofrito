@@ -1,5 +1,5 @@
 /**
- * Handlers de perfil (redeploy 2026-08-10).
+ * Handlers de perfil.
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'

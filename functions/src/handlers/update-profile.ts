@@ -3,10 +3,7 @@
  * Stub mínimo — expande conforme necessário.
  */
 
-import { onCall, HttpsError } from
-
-logger.info("Function module loaded");
- 'firebase-functions/v2/https'
+import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
 import { z } from 'zod'
 

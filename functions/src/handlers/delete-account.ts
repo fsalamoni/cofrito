@@ -2,10 +2,7 @@
  * Handler para apagar conta (LGPD).
  */
 
-import { onCall, HttpsError } from
-
-logger.info("Function module loaded");
- 'firebase-functions/v2/https'
+import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { logger } from 'firebase-functions/v2'
