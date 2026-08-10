@@ -26,12 +26,14 @@ import {
   type IntranetConfig,
 } from '../agents/types'
 
-const db = getFirestore()
+function getDb() {
+  return getFirestore()
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async function isAdminMaster(uid: string): Promise<boolean> {
-  const snap = await db.doc(`admins/${uid}`).get()
+  const snap = await getDb().doc(`admins/${uid}`).get()
   if (!snap.exists) return false
   const data = snap.data() as any
   return data?.role === 'master' && data?.active !== false
@@ -48,7 +50,7 @@ export const getResearchConfig = onCall({ cors: true }, async (req): Promise<Res
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await db.doc('admin-config/research').get()
+  const snap = await getDb().doc('admin-config/research').get()
   if (!snap.exists) return null
   return snap.data() as ResearchConfig
 })
@@ -76,7 +78,7 @@ export const saveResearchConfig = onCall({ cors: true }, async (req): Promise<{ 
     throw new HttpsError('invalid-argument', 'minRelevanceScore deve estar entre 0 e 1')
   }
   const savedAt = new Date().toISOString()
-  await db.doc('admin-config/research').set({
+  await getDb().doc('admin-config/research').set({
     ...cfg,
     updatedAt: savedAt,
     updatedBy: req.auth!.uid,
@@ -91,7 +93,7 @@ export const getWebSearchConfig = onCall({ cors: true }, async (req): Promise<We
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await db.doc('admin-config/web-search').get()
+  const snap = await getDb().doc('admin-config/web-search').get()
   if (!snap.exists) return null
   // NUNCA retornar apiKey em texto claro para o frontend — usar campo hasApiKey
   const data = snap.data() as WebSearchConfig
@@ -114,7 +116,7 @@ export const saveWebSearchConfig = onCall({ cors: true }, async (req): Promise<{
   // Se apiKey vier com '••••' (mascarada), manter a que já está salva
   let finalApiKey = cfg.apiKey
   if (cfg.apiKey === '••••••' || !cfg.apiKey) {
-    const snap = await db.doc('admin-config/web-search').get()
+    const snap = await getDb().doc('admin-config/web-search').get()
     if (snap.exists) {
       finalApiKey = (snap.data() as WebSearchConfig).apiKey
     } else {
@@ -122,7 +124,7 @@ export const saveWebSearchConfig = onCall({ cors: true }, async (req): Promise<{
     }
   }
   const savedAt = new Date().toISOString()
-  await db.doc('admin-config/web-search').set({
+  await getDb().doc('admin-config/web-search').set({
     ...cfg,
     apiKey: finalApiKey,
     updatedAt: savedAt,
@@ -140,7 +142,7 @@ export const testWebSearch = onCall({ cors: true }, async (req): Promise<{ ok: b
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const cfgSnap = await db.doc('admin-config/web-search').get()
+  const cfgSnap = await getDb().doc('admin-config/web-search').get()
   if (!cfgSnap.exists) {
     return { ok: false, resultCount: 0, latencyMs: 0, error: 'Web search não configurado' }
   }
@@ -155,7 +157,7 @@ export const testWebSearch = onCall({ cors: true }, async (req): Promise<{ ok: b
     const { runResearcherWeb } = await import('../agents/researcher-web')
     const points = [{ id: 't1', query, keywords: query.split(/\s+/), priority: 'high' as const, expectedSourceTypes: [], prefersRecent: true, recencyMonths: 12 }]
     // Montar intranet config vazia para o teste
-    const intranetSnap = await db.doc('admin-config/intranet').get()
+    const intranetSnap = await getDb().doc('admin-config/intranet').get()
     const intranet = (intranetSnap.exists ? intranetSnap.data() : DEFAULT_INTRANET_CONFIG) as IntranetConfig
     const sources = await runResearcherWeb({
       points: points as any,
@@ -181,7 +183,7 @@ export const getIntranetConfig = onCall({ cors: true }, async (req): Promise<Int
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await db.doc('admin-config/intranet').get()
+  const snap = await getDb().doc('admin-config/intranet').get()
   if (!snap.exists) return null
   const data = snap.data() as IntranetConfig
   // Mascarar senha
@@ -206,7 +208,7 @@ export const saveIntranetConfig = onCall({ cors: true }, async (req): Promise<{ 
   // Preservar senha se vier mascarada
   let finalPassword = cfg.password
   if (cfg.password === '••••••' || !cfg.password) {
-    const snap = await db.doc('admin-config/intranet').get()
+    const snap = await getDb().doc('admin-config/intranet').get()
     if (snap.exists) {
       finalPassword = (snap.data() as IntranetConfig).password
     } else {
@@ -214,7 +216,7 @@ export const saveIntranetConfig = onCall({ cors: true }, async (req): Promise<{ 
     }
   }
   const savedAt = new Date().toISOString()
-  await db.doc('admin-config/intranet').set({
+  await getDb().doc('admin-config/intranet').set({
     ...cfg,
     password: finalPassword,
     updatedAt: savedAt,
@@ -231,7 +233,7 @@ export const testIntranet = onCall({ cors: true }, async (req): Promise<{ ok: bo
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await db.doc('admin-config/intranet').get()
+  const snap = await getDb().doc('admin-config/intranet').get()
   if (!snap.exists) {
     return { ok: false, latencyMs: 0, error: 'Intranet não configurada' }
   }
@@ -281,9 +283,9 @@ export const testIntranet = onCall({ cors: true }, async (req): Promise<{ ok: bo
  */
 export const getPublicResearchStatus = onRequest({ cors: true }, async (_req: Request, res) => {
   res.set('Access-Control-Allow-Origin', '*')
-  const research = await db.doc('admin-config/research').get()
-  const web = await db.doc('admin-config/web-search').get()
-  const intranet = await db.doc('admin-config/intranet').get()
+  const research = await getDb().doc('admin-config/research').get()
+  const web = await getDb().doc('admin-config/web-search').get()
+  const intranet = await getDb().doc('admin-config/intranet').get()
   res.json({
     research: research.exists ? research.data() : DEFAULT_RESEARCH_CONFIG,
     webSearchEnabled: web.exists && (web.data() as WebSearchConfig).enabled,
