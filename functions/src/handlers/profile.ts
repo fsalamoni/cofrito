@@ -8,7 +8,7 @@ import { getUserProfile as getProfileFromDB } from '../services/profile'
 import { z } from 'zod'
 
 export const getProfile = onCall(
-  { cors: true },async (request) => {
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }
@@ -30,7 +30,7 @@ const UpdateProfileSchema = z.object({
 })
 
 export const updateProfile = onCall(
-  { cors: true },async (request) => {
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }

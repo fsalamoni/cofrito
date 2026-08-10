@@ -13,7 +13,7 @@ const UpdateProfileRequestSchema = z.object({
   areas: z.array(z.string()).max(10).optional(),
 })
 
-export const updateProfile = onCall({ cors: true }, async (request) => {
+export const updateProfile = onCall({ cors: true, enforceAppCheck: false }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login para atualizar o perfil.')
   }

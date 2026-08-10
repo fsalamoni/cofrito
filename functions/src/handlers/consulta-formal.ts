@@ -23,7 +23,7 @@ const ConsultaRequestSchema = z.object({
 })
 
 export const openConsultaFormal = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para abrir consulta formal.')

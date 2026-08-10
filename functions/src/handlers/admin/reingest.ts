@@ -10,7 +10,7 @@ import { runIngestion } from '../../services/ingestion'
 import { assertAdmin } from '../../middleware/auth'
 
 export const adminReingest = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdmin(request.auth.uid)

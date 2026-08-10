@@ -8,7 +8,7 @@ import { getAuth } from 'firebase-admin/auth'
 import { logger } from 'firebase-functions/v2'
 
 export const deleteAccount = onCall(
-  { cors: true },async (request) => {
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }

@@ -13,7 +13,7 @@ import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../
 
 // ── USER: get/set/delete config pessoal (campo no user doc) ───────────────
 
-export const getLLMConfig = onCall({ cors: true },
+export const getLLMConfig = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const db = getFirestore()
@@ -35,7 +35,7 @@ export const getLLMConfig = onCall({ cors: true },
   }
 })
 
-export const setLLMConfig = onCall({ cors: true },
+export const setLLMConfig = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const cfg = request.data as LLMConfigLike
@@ -56,7 +56,7 @@ export const setLLMConfig = onCall({ cors: true },
   return { ok: true }
 })
 
-export const deleteLLMConfig = onCall({ cors: true },
+export const deleteLLMConfig = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const db = getFirestore()
@@ -69,7 +69,7 @@ export const deleteLLMConfig = onCall({ cors: true },
 
 // ── MASTER ADMIN: config global ──────────────────────────────────────────
 
-export const adminGetGlobalLLM = onCall({ cors: true },
+export const adminGetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
@@ -88,7 +88,7 @@ export const adminGetGlobalLLM = onCall({ cors: true },
   }
 })
 
-export const adminSetGlobalLLM = onCall({ cors: true },
+export const adminSetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
@@ -112,7 +112,7 @@ export const adminSetGlobalLLM = onCall({ cors: true },
 
 // ── Listagem de modelos (chamada pelo front) ─────────────────────────────
 
-export const listLLMModels = onCall({ cors: true },
+export const listLLMModels = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   const { provider, apiKey, baseUrl } = request.data as { provider: LLMProvider; apiKey: string; baseUrl?: string }
@@ -128,7 +128,7 @@ export const listLLMModels = onCall({ cors: true },
 
 // ── Admin: gerenciar admins (grant/revoke/list) ─────────────────────────
 
-export const adminListAdmins = onCall({ cors: true },
+export const adminListAdmins = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
@@ -137,7 +137,7 @@ export const adminListAdmins = onCall({ cors: true },
   return snap.docs.map((d) => ({ uid: d.id, ...d.data() }))
 })
 
-export const adminGrantAdmin = onCall({ cors: true },
+export const adminGrantAdmin = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
@@ -168,7 +168,7 @@ export const adminGrantAdmin = onCall({ cors: true },
   return { ok: true, uid: userDoc.id }
 })
 
-export const adminRevokeAdmin = onCall({ cors: true },
+export const adminRevokeAdmin = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
@@ -181,7 +181,7 @@ export const adminRevokeAdmin = onCall({ cors: true },
   return { ok: true }
 })
 
-export const adminListUserLLM = onCall({ cors: true },
+export const adminListUserLLM = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)

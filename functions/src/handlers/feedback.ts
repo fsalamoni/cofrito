@@ -13,7 +13,7 @@ const FeedbackSchema = z.object({
 })
 
 export const submitFeedback = onCall(
-  { cors: true },async (request) => {
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }

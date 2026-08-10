@@ -148,7 +148,7 @@ export const adminUploadDocument = onCall(
 // ── Listar documentos do corpus ──────────────────────────────────────────
 
 export const adminListDocuments = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -161,7 +161,7 @@ export const adminListDocuments = onCall(
 // ── Deletar documento ──────────────────────────────────────────────────
 
 export const adminDeleteDocument = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -205,7 +205,7 @@ export const adminDeleteDocument = onCall(
  *  - uri: caminho (file:///path) ou URL (https://...)
  */
 export const adminGetSourcePaths = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -219,7 +219,7 @@ export const adminGetSourcePaths = onCall(
 )
 
 export const adminSetSourcePaths = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
