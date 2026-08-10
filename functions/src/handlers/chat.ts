@@ -7,7 +7,10 @@
  * base no corpus e recusa se não houver material (regras primordiais).
  */
 
-import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { onCall, HttpsError } from
+
+logger.info("Function module loaded");
+ 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
 import { z } from 'zod'
 

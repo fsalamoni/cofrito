@@ -6,7 +6,10 @@
  *  - user: campo `llmConfig` em `users/{uid}` (subcollection path com 3 segments é inválido)
  *  - master: doc `admin-config/llm` (global, esconde user)
  */
-import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { onCall, HttpsError } from
+
+logger.info("Function module loaded");
+ 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { assertAdminMaster } from '../middleware/auth'
 import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../services/llm-providers'

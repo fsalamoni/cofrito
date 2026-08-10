@@ -2,7 +2,10 @@
  * Admin: estatísticas gerais.
  */
 
-import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { onCall, HttpsError } from
+
+logger.info("Function module loaded");
+ 'firebase-functions/v2/https'
 import { getFirestore } from 'firebase-admin/firestore'
 import { assertAdmin } from '../../middleware/auth'
 

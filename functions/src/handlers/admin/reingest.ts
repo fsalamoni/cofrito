@@ -5,7 +5,10 @@
  * Reativar: descomentar defineSecret e GEMINI_API_KEY.value().
  */
 
-import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { onCall, HttpsError } from
+
+logger.info("Function module loaded");
+ 'firebase-functions/v2/https'
 import { runIngestion } from '../../services/ingestion'
 import { assertAdmin } from '../../middleware/auth'
 

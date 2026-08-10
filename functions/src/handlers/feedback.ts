@@ -2,7 +2,10 @@
  * Handler para feedback do usuário.
  */
 
-import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { onCall, HttpsError } from
+
+logger.info("Function module loaded");
+ 'firebase-functions/v2/https'
 import { z } from 'zod'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 
