@@ -54,6 +54,12 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+          # Forçar re-deploy das functions que não foram re-criadas
+          # (App Check config cacheada)
+          firebase functions:delete getProfile updateProfile getHistory getLLMConfig \
+            --region southamerica-east1 \
+            --force \
+            --token "$FIREBASE_TOKEN" || true
           firebase deploy \
             --only functions,firestore:rules,firestore:indexes,hosting,storage \
             --non-interactive --token "$FIREBASE_TOKEN"
