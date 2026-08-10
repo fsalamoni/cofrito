@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 /**
  * AdminPage — painel administrativo para master admin.
  *

@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 /**
  * IntranetConfig — painel admin para configurar a intranet MPRS.
  *

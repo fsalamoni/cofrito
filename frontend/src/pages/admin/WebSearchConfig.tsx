@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 /**
  * WebSearchConfig — painel admin para configurar a pesquisa web.
  *
