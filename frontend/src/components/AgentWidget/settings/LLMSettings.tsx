@@ -13,6 +13,8 @@ import { PROVIDERS, getProviderInfo, getEnrichedModelsForProvider } from '@/lib/
 import { useLLMConfig } from '@/hooks/useLLMConfig'
 import type { LLMConfig, LLMProvider } from '@/types'
 import { ModelSelectorTable } from './ModelSelectorTable'
+import { InfoModal } from '@/components/InfoModal'
+import { TemperatureInfo, MaxTokensInfo } from '@/components/llm-info-content'
 
 export function LLMSettings() {
   const {
@@ -263,6 +265,7 @@ export function LLMSettings() {
             showProvider={false}
             maxHeight={360}
             compact
+            providerId={provider}
           />
         ) : (
           <input
@@ -280,6 +283,7 @@ export function LLMSettings() {
       <div style={fieldStyle}>
         <label style={fieldLabelStyle}>
           Temperatura: {temperature.toFixed(2)}
+          <InfoModal title="Temperatura"><TemperatureInfo /></InfoModal>
         </label>
         <input
           type="range"
@@ -291,13 +295,16 @@ export function LLMSettings() {
           style={{ width: '100%' }}
         />
         <div style={hintStyle}>
-          0 = mais determinístico · 2 = mais criativo
+          0 = determinístico · 2 = caótico. <strong>Recomendado: 0.1–0.3</strong> para peças jurídicas.
         </div>
       </div>
 
       {/* Max tokens */}
       <div style={fieldStyle}>
-        <label style={fieldLabelStyle}>Max tokens</label>
+        <label style={fieldLabelStyle}>
+          Max tokens
+          <InfoModal title="Max tokens (tamanho da resposta)"><MaxTokensInfo /></InfoModal>
+        </label>
         <input
           type="number"
           min="100"
@@ -307,6 +314,9 @@ export function LLMSettings() {
           onChange={(e) => setMaxTokens(parseInt(e.target.value) || 2000)}
           style={inputStyle}
         />
+        <div style={hintStyle}>
+          ≈ {Math.round(maxTokens * 0.75).toLocaleString('pt-BR')} palavras. <strong>Padrão: 2.000</strong>.
+        </div>
       </div>
 
       {/* Feedback */}

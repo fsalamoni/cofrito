@@ -201,7 +201,8 @@ export interface LLMModelInfo {
   outputCost?: number
   /** Se o modelo é gratuito (custos 0 ou marcados como free). */
   isFree?: boolean
-  /** Notas de 0-10 do modelo em cada capacidade (extração, síntese, raciocínio, redação). */
+  /** Notas de 0-100 do modelo em cada capacidade (extração, síntese, raciocínio, redação).
+   *  Normalizadas por provider — o melhor do provider tem 100, o pior tem 1. */
   agentFit?: AgentFitScores
   /** Descrição curta do modelo. */
   description?: string
@@ -210,7 +211,9 @@ export interface LLMModelInfo {
 /** Categorias de capacidade de agente — para o qual o modelo é mais apto. */
 export type AgentCategory = 'extraction' | 'synthesis' | 'reasoning' | 'writing'
 
-/** Notas 0-10 do modelo em cada categoria. 10 = melhor da classe, 1-2 = fraco. */
+/** Notas 0-100 do modelo em cada categoria (escala absoluta, normalizada por provider).
+ *  100 = melhor da classe · 80-99 = excelente · 60-79 = bom · 40-59 = adequado
+ *  20-39 = fraco · 0-19 = ruim */
 export interface AgentFitScores {
   extraction: number
   synthesis: number

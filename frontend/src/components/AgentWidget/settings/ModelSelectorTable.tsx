@@ -33,6 +33,9 @@ import {
   type EnrichedModel,
 } from '@/lib/model-scoring'
 import { formatCost } from '@/lib/currency-utils'
+import { useOpenRouterPricing } from '@/hooks/useOpenRouterPricing'
+import { InfoModal } from '@/components/InfoModal'
+import { ContextInfo, PricingInfo } from '@/components/llm-info-content'
 import type { AgentCategory, ModelCapability } from '@/types'
 
 type SortKey =
@@ -46,6 +49,8 @@ interface ModelSelectorTableProps {
   showProvider?: boolean
   maxHeight?: number
   compact?: boolean
+  /** Provider sendo exibido (necessário para buscar preços reais do OpenRouter) */
+  providerId?: string
 }
 
 const TIER_LABELS: Record<'fast' | 'balanced' | 'premium', string> = {
@@ -73,6 +78,7 @@ export function ModelSelectorTable({
   showProvider = true,
   maxHeight = 460,
   compact = false,
+  providerId,
 }: ModelSelectorTableProps) {
   const [search, setSearch] = useState('')
   const [tierFilter, setTierFilter] = useState<'all' | 'fast' | 'balanced' | 'premium'>('all')
@@ -81,19 +87,37 @@ export function ModelSelectorTable({
   const [sortKey, setSortKey] = useState<SortKey>('topScore')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
+  // Buscar preços REAIS do OpenRouter (se for o provider selecionado)
+  const { pricingMap, loading: loadingPricing, lastUpdated: orLastUpdated, refresh: refreshPricing } = useOpenRouterPricing(providerId === 'openrouter')
+
+  // Aplica preços REAIS do OpenRouter sobre os modelos (se for o caso)
+  const modelsWithRealPricing = useMemo(() => {
+    if (providerId !== 'openrouter' || pricingMap.size === 0) return models
+    return models.map((m) => {
+      const p = pricingMap.get(m.id)
+      if (!p) return m
+      return {
+        ...m,
+        inputCost: p.prompt,
+        outputCost: p.completion,
+        isFree: p.prompt === 0 && p.completion === 0,
+      }
+    })
+  }, [models, providerId, pricingMap])
+
   // Estatísticas dos filtros
   const stats = useMemo(() => {
-    const total = models.length
-    const free = models.filter((m) => m.isFree).length
-    const premium = models.filter((m) => m.tier === 'premium').length
-    const fast = models.filter((m) => m.tier === 'fast').length
-    const multimodal = models.filter((m) => (m.capabilities ?? []).some((c) => c !== 'text')).length
+    const total = modelsWithRealPricing.length
+    const free = modelsWithRealPricing.filter((m) => m.isFree).length
+    const premium = modelsWithRealPricing.filter((m) => m.tier === 'premium').length
+    const fast = modelsWithRealPricing.filter((m) => m.tier === 'fast').length
+    const multimodal = modelsWithRealPricing.filter((m) => (m.capabilities ?? []).some((c) => c !== 'text')).length
     return { total, free, premium, fast, multimodal }
-  }, [models])
+  }, [modelsWithRealPricing])
 
   // Filtragem
   const filtered = useMemo(() => {
-    let list = [...models]
+    let list = [...modelsWithRealPricing]
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter((m) =>
@@ -108,7 +132,7 @@ export function ModelSelectorTable({
     if (priceFilter === 'paid') list = list.filter((m) => !m.isFree)
     if (capFilter !== 'all') list = list.filter((m) => (m.capabilities ?? []).includes(capFilter))
     return list
-  }, [models, search, tierFilter, priceFilter, capFilter])
+  }, [modelsWithRealPricing, search, tierFilter, priceFilter, capFilter])
 
   // Ordenação
   const sorted = useMemo(() => {
@@ -247,10 +271,28 @@ export function ModelSelectorTable({
         <span style={{ color: '#f59e0b' }}>⭐ {stats.premium} premium</span>
         <span style={{ color: '#10b981' }}>⚡ {stats.fast} rápidos</span>
         <span style={{ color: '#ec4899' }}>🎬 {stats.multimodal} multimodais</span>
-        {filtered.length !== models.length && (
+        {filtered.length !== modelsWithRealPricing.length && (
           <span style={{ color: '#6b7280' }}>· mostrando {filtered.length}</span>
         )}
       </div>
+
+      {/* Banner de preços OpenRouter */}
+      {providerId === 'openrouter' && (
+        <div style={orPricingBannerStyle}>
+          {loadingPricing ? (
+            <span style={{ fontSize: 10, color: '#1e40af' }}>🔄 Buscando preços reais do OpenRouter...</span>
+          ) : pricingMap.size > 0 ? (
+            <span style={{ fontSize: 10, color: '#1e40af' }}>
+              💰 <strong>Preços REAIS</strong> do OpenRouter carregados
+              {orLastUpdated && ` · ${orLastUpdated.toLocaleString('pt-BR')}`}
+              {' · '}
+              <button onClick={refreshPricing} style={orRefreshBtnStyle}>↻ Atualizar</button>
+            </span>
+          ) : (
+            <span style={{ fontSize: 10, color: '#92400e' }}>⚠️ Preços do OpenRouter indisponíveis (cache expirado / offline)</span>
+          )}
+        </div>
+      )}
 
       {/* ── Tabela ──────────────────────────────────────────── */}
       <div style={{ ...tableWrapStyle, maxHeight }}>
@@ -265,9 +307,23 @@ export function ModelSelectorTable({
               <th style={thStyle}><SortHeader k="reasoning">Ra</SortHeader></th>
               <th style={thStyle}><SortHeader k="writing">Re</SortHeader></th>
               <th style={thStyle}><SortHeader k="topScore">Melhor para</SortHeader></th>
-              <th style={thStyle}><SortHeader k="context">Contexto</SortHeader></th>
-              <th style={thStyle}><SortHeader k="inputCost">In</SortHeader></th>
-              <th style={thStyle}><SortHeader k="outputCost">Out</SortHeader></th>
+              <th style={thStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                  <SortHeader k="context">Contexto</SortHeader>
+                  <InfoModal title="Contexto" iconSize={9}><ContextInfo /></InfoModal>
+                </div>
+              </th>
+              <th style={thStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                  <SortHeader k="inputCost">In</SortHeader>
+                  <InfoModal title="Preço de entrada (R$)" iconSize={9}><PricingInfo /></InfoModal>
+                </div>
+              </th>
+              <th style={thStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                  <SortHeader k="outputCost">Out</SortHeader>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -684,4 +740,26 @@ const legendStyle: React.CSSProperties = {
   gap: 8,
   padding: '4px 0',
   flexWrap: 'wrap',
+}
+
+const orPricingBannerStyle: React.CSSProperties = {
+  padding: '4px 8px',
+  background: 'rgba(59, 130, 246, 0.10)',
+  border: '1px solid rgba(59, 130, 246, 0.25)',
+  borderRadius: 6,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+}
+
+const orRefreshBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: '#1e40af',
+  cursor: 'pointer',
+  fontSize: 10,
+  fontWeight: 500,
+  textDecoration: 'underline',
+  padding: 0,
+  fontFamily: 'inherit',
 }

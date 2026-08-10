@@ -14,6 +14,8 @@ import { PROVIDERS, getProviderInfo, getEnrichedModelsForProvider } from '@/lib/
 import { Users, Globe, Shield, Trash2, Plus, AlertCircle, Check, X, Loader2, Database } from 'lucide-react'
 import type { LLMProvider, LLMConfig } from '@/types'
 import { ModelSelectorTable } from './ModelSelectorTable'
+import { InfoModal } from '@/components/InfoModal'
+import { TemperatureInfo, MaxTokensInfo } from '@/components/llm-info-content'
 
 type Tab = 'llm' | 'admins'
 
@@ -393,6 +395,7 @@ function GlobalLLMFormWithSelect({
             showProvider={false}
             maxHeight={360}
             compact
+            providerId={provider}
           />
         ) : (
           <input
@@ -415,6 +418,7 @@ function GlobalLLMFormWithSelect({
       <div style={formFieldStyle}>
         <label style={formLabelStyle}>
           Temperatura: {temperature.toFixed(2)}
+          <InfoModal title="Temperatura"><TemperatureInfo /></InfoModal>
         </label>
         <input
           type="range"
@@ -425,11 +429,15 @@ function GlobalLLMFormWithSelect({
           onChange={(e) => setTemperature(parseFloat(e.target.value))}
           style={{ width: '100%' }}
         />
+        <div style={formHintStyle}>0 = determinístico · 2 = caótico. <strong>Recomendado: 0.1–0.3</strong> para peças jurídicas.</div>
       </div>
 
       {/* MAX TOKENS */}
       <div style={formFieldStyle}>
-        <label style={formLabelStyle}>Max tokens</label>
+        <label style={formLabelStyle}>
+          Max tokens
+          <InfoModal title="Max tokens (tamanho da resposta)"><MaxTokensInfo /></InfoModal>
+        </label>
         <input
           type="number"
           min="100"
@@ -439,6 +447,7 @@ function GlobalLLMFormWithSelect({
           onChange={(e) => setMaxTokens(parseInt(e.target.value) || 2000)}
           style={formInputStyle}
         />
+        <div style={formHintStyle}>≈ {Math.round(maxTokens * 0.75).toLocaleString('pt-BR')} palavras. <strong>Padrão: 2.000</strong> (cabe a maioria das respostas).</div>
       </div>
 
       {/* FEEDBACK */}

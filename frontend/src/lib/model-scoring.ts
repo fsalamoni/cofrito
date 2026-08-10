@@ -63,30 +63,40 @@ export function inferCapabilitiesFromText(id: string, label = '', description = 
 const REASONING_RE = /\b(r1|r2|o1|o3|o4|thinking|reason|think|opus[- ]?4[- ]?7|opus[- ]?4[- ]?1|deepseek[- ]?reason|qwen3|max)\b/i
 
 /**
- * Notas brutas (0-10 absolutos) — antes da normalização por provider.
+ * Notas brutas (0-100 absolutos) — antes da normalização por provider.
  *  - Modelos de raciocínio: reasoning alto, outros moderados
  *  - Premium: synthesis / reasoning / writing altos
- *  - Balanced: tudo em 7
+ *  - Balanced: tudo em 70
  *  - Fast: extraction alto, synthesis/reasoning/writing moderados
+ *
+ * A escala 0-100 é a meta — depois a normalização por provider reescala
+ * para que o top do provider = 100 e o pior = 1, mantendo a proporção.
  */
 export function inferRawFitScores(tier: 'fast' | 'balanced' | 'premium', id: string): AgentFitScores {
   const isReasoning = REASONING_RE.test(id)
-  if (isReasoning) return { extraction: 3, synthesis: 6, reasoning: 9, writing: 6 }
+  if (isReasoning) return { extraction: 30, synthesis: 60, reasoning: 95, writing: 60 }
   switch (tier) {
-    case 'fast':     return { extraction: 8, synthesis: 5, reasoning: 4, writing: 5 }
-    case 'premium':  return { extraction: 6, synthesis: 9, reasoning: 9, writing: 9 }
-    default:         return { extraction: 7, synthesis: 7, reasoning: 7, writing: 7 }
+    case 'fast':     return { extraction: 85, synthesis: 50, reasoning: 35, writing: 50 }
+    case 'premium':  return { extraction: 60, synthesis: 90, reasoning: 90, writing: 90 }
+    default:         return { extraction: 70, synthesis: 70, reasoning: 70, writing: 70 }
   }
 }
 
 /**
  * Normaliza notas brutas por provedor para que o melhor modelo do provider
- * tenha 10.0 e o pior tenha 1.0, mantendo a proporção relativa.
+ * tenha 100 e o pior tenha 1, mantendo a proporção relativa (min-max scaling).
  *
- * Se só há 1 modelo no provider, mantém as notas brutas.
+ * Se só há 1 modelo no provider, mantém as notas brutas (arredondadas).
  */
 export function normalizeScoresInProvider(scores: AgentFitScores, allScores: AgentFitScores[]): AgentFitScores {
-  if (allScores.length <= 1) return scores
+  if (allScores.length <= 1) {
+    return {
+      extraction: Math.round(scores.extraction),
+      synthesis:  Math.round(scores.synthesis),
+      reasoning:  Math.round(scores.reasoning),
+      writing:    Math.round(scores.writing),
+    }
+  }
   const cats: AgentCategory[] = ['extraction', 'synthesis', 'reasoning', 'writing']
   const out = { ...scores }
   for (const c of cats) {
@@ -94,10 +104,10 @@ export function normalizeScoresInProvider(scores: AgentFitScores, allScores: Age
     const min = Math.min(...values)
     const max = Math.max(...values)
     if (max === min) {
-      out[c] = 7
+      out[c] = 50 // all tied → "médio"
     } else {
-      // min-max scaling: [min, max] → [1, 10]
-      out[c] = Math.round(((scores[c] - min) / (max - min)) * 9 + 1)
+      // min-max scaling: [min, max] → [1, 100]
+      out[c] = Math.round(((scores[c] - min) / (max - min)) * 99 + 1)
     }
   }
   return out
