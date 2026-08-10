@@ -184,10 +184,172 @@ export const MODEL_OVERRIDES: Record<string, ModelOverride> = {
   'llama-guard3:8b':           { tier: 'fast',     inputCost: 0, outputCost: 0, capabilities: ['text'] },
   'nomic-embed-text':          { tier: 'fast',     inputCost: 0, outputCost: 0, capabilities: ['text'] },
 
-  // ── OpenRouter (top modelos via roteador) — preço variável, listaremos como roteador ──
-  // Para OpenRouter, preços dependem do modelo roteado. Não anotamos aqui —
-  // esses são listados sem preço pelo `listModels` real quando o usuário clica em
-  // "Buscar do provider".
+  // ── OpenRouter (preços REAIS por 1M tokens, fonte: openrouter.ai) ──────────
+  // Estes são os preços cobrados pelo OpenRouter para CADA modelo.
+  // Formato: 'provider/modelo' como id (ex: 'openai/gpt-4o').
+
+  // OpenAI via OpenRouter
+  'openai/gpt-5':                       { tier: 'premium',  inputCost: 1.25,  outputCost: 10.0,  capabilities: ['text', 'image'] },
+  'openai/gpt-5-chat':                  { tier: 'premium',  inputCost: 1.25,  outputCost: 10.0,  capabilities: ['text', 'image'] },
+  'openai/gpt-5-mini':                  { tier: 'balanced', inputCost: 0.25,  outputCost: 2.0,   capabilities: ['text', 'image'] },
+  'openai/gpt-5-nano':                  { tier: 'fast',     inputCost: 0.05,  outputCost: 0.40,  capabilities: ['text', 'image'] },
+  'openai/gpt-4.1':                     { tier: 'premium',  inputCost: 2.0,   outputCost: 8.0,   capabilities: ['text', 'image'] },
+  'openai/gpt-4.1-mini':                { tier: 'fast',     inputCost: 0.40,  outputCost: 1.60,  capabilities: ['text', 'image'] },
+  'openai/gpt-4.1-nano':                { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text', 'image'] },
+  'openai/gpt-4o':                      { tier: 'balanced', inputCost: 2.50,  outputCost: 10.0,  capabilities: ['text', 'image', 'audio'] },
+  'openai/gpt-4o-mini':                 { tier: 'fast',     inputCost: 0.15,  outputCost: 0.60,  capabilities: ['text', 'image', 'audio'] },
+  'openai/o1':                          { tier: 'premium',  inputCost: 15.0,  outputCost: 60.0,  capabilities: ['text'] },
+  'openai/o1-mini':                     { tier: 'balanced', inputCost: 3.0,   outputCost: 12.0,  capabilities: ['text'] },
+  'openai/o1-pro':                      { tier: 'premium',  inputCost: 150.0, outputCost: 600.0, capabilities: ['text'] },
+  'openai/o3':                          { tier: 'premium',  inputCost: 10.0,  outputCost: 40.0,  capabilities: ['text'] },
+  'openai/o3-mini':                     { tier: 'balanced', inputCost: 1.10,  outputCost: 4.40,  capabilities: ['text'] },
+  'openai/o3-pro':                      { tier: 'premium',  inputCost: 20.0,  outputCost: 80.0,  capabilities: ['text'] },
+  'openai/o4-mini':                     { tier: 'balanced', inputCost: 1.10,  outputCost: 4.40,  capabilities: ['text', 'image'] },
+  'openai/gpt-3.5-turbo':               { tier: 'fast',     inputCost: 0.50,  outputCost: 1.50,  capabilities: ['text'] },
+  'openai/gpt-3.5-turbo-instruct':      { tier: 'fast',     inputCost: 0.50,  outputCost: 1.50,  capabilities: ['text'] },
+  'openai/gpt-4-turbo':                 { tier: 'balanced', inputCost: 10.0,  outputCost: 30.0,  capabilities: ['text', 'image'] },
+  'openai/gpt-4':                       { tier: 'balanced', inputCost: 30.0,  outputCost: 60.0,  capabilities: ['text', 'image'] },
+
+  // Anthropic via OpenRouter
+  'anthropic/claude-opus-4':            { tier: 'premium',  inputCost: 15.0,  outputCost: 75.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-opus-4.1':          { tier: 'premium',  inputCost: 15.0,  outputCost: 75.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-sonnet-4':          { tier: 'premium',  inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-sonnet-4.5':        { tier: 'premium',  inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-3.7-sonnet':        { tier: 'premium',  inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-3.5-sonnet':        { tier: 'balanced', inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-3.5-haiku':         { tier: 'fast',     inputCost: 0.80,  outputCost: 4.0,   capabilities: ['text'] },
+  'anthropic/claude-3-haiku':           { tier: 'fast',     inputCost: 0.25,  outputCost: 1.25,  capabilities: ['text'] },
+  'anthropic/claude-3-opus':            { tier: 'premium',  inputCost: 15.0,  outputCost: 75.0,  capabilities: ['text', 'image'] },
+  'anthropic/claude-3-sonnet':          { tier: 'balanced', inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+
+  // Google via OpenRouter
+  'google/gemini-2.5-pro':              { tier: 'premium',  inputCost: 1.25,  outputCost: 10.0,  capabilities: ['text', 'image'] },
+  'google/gemini-2.5-flash':            { tier: 'balanced', inputCost: 0.30,  outputCost: 2.50,  capabilities: ['text', 'image'] },
+  'google/gemini-2.5-flash-lite':       { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text', 'image'] },
+  'google/gemini-2.0-flash':            { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text', 'image'] },
+  'google/gemini-2.0-flash-lite':       { tier: 'fast',     inputCost: 0.025, outputCost: 0.10,  capabilities: ['text', 'image'] },
+  'google/gemini-2.0-pro-exp':          { tier: 'premium',  inputCost: 1.25,  outputCost: 5.0,   capabilities: ['text', 'image'] },
+  'google/gemini-1.5-pro':              { tier: 'balanced', inputCost: 1.25,  outputCost: 5.0,   capabilities: ['text', 'image'] },
+  'google/gemini-1.5-flash':            { tier: 'fast',     inputCost: 0.075, outputCost: 0.30,  capabilities: ['text', 'image'] },
+  'google/gemini-1.5-flash-8b':         { tier: 'fast',     inputCost: 0.0375, outputCost: 0.15, capabilities: ['text', 'image'] },
+  'google/gemini-pro-vision':           { tier: 'balanced', inputCost: 0.50,  outputCost: 1.50,  capabilities: ['text', 'image'] },
+  'google/gemini-3.5-flash':            { tier: 'balanced', inputCost: 0.30,  outputCost: 2.50,  capabilities: ['text', 'image'] },
+  'google/gemini-3.5-flash-lite':       { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text', 'image'] },
+  'google/gemini-3.6-flash':            { tier: 'balanced', inputCost: 0.30,  outputCost: 2.50,  capabilities: ['text', 'image'] },
+
+  // DeepSeek via OpenRouter
+  'deepseek/deepseek-chat':             { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-chat-v3':          { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-reasoner':         { tier: 'premium',  inputCost: 0.55,  outputCost: 2.19,  capabilities: ['text'] },
+  'deepseek/deepseek-r1':               { tier: 'premium',  inputCost: 0.55,  outputCost: 2.19,  capabilities: ['text'] },
+  'deepseek/deepseek-v3':               { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-v3-flash':         { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text'] },
+  'deepseek/deepseek-v3-flash-latest':  { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text'] },
+  'deepseek/deepseek-v3.1':             { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-v3.1-terminus':    { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-v3.2':             { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-v3.2-exp':         { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-coder':            { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-coder-v2':         { tier: 'balanced', inputCost: 0.27,  outputCost: 1.10,  capabilities: ['text'] },
+  'deepseek/deepseek-v4-flash':         { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text'] },
+  'deepseek/deepseek-v4-flash-latest':  { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text'] },
+  'deepseek/deepseek-v4-flash-0731':    { tier: 'fast',     inputCost: 0.10,  outputCost: 0.40,  capabilities: ['text'] },
+
+  // Meta (Llama) via OpenRouter
+  'meta-llama/llama-3.3-70b-instruct':  { tier: 'balanced', inputCost: 0.12,  outputCost: 0.30,  capabilities: ['text'] },
+  'meta-llama/llama-3.3-8b-instruct':   { tier: 'fast',     inputCost: 0.02,  outputCost: 0.025, capabilities: ['text'] },
+  'meta-llama/llama-3.2-90b-vision-instruct': { tier: 'premium', inputCost: 0.35, outputCost: 0.40, capabilities: ['text', 'image'] },
+  'meta-llama/llama-3.2-11b-vision-instruct': { tier: 'fast', inputCost: 0.05, outputCost: 0.05, capabilities: ['text', 'image'] },
+  'meta-llama/llama-3.2-3b-instruct':   { tier: 'fast',     inputCost: 0.01,  outputCost: 0.02,  capabilities: ['text'] },
+  'meta-llama/llama-3.2-1b-instruct':   { tier: 'fast',     inputCost: 0.005, outputCost: 0.01,  capabilities: ['text'] },
+  'meta-llama/llama-3.1-405b-instruct': { tier: 'premium',  inputCost: 2.0,   outputCost: 2.0,   capabilities: ['text'] },
+  'meta-llama/llama-3.1-70b-instruct':  { tier: 'balanced', inputCost: 0.40,  outputCost: 0.40,  capabilities: ['text'] },
+  'meta-llama/llama-3.1-8b-instruct':   { tier: 'fast',     inputCost: 0.02,  outputCost: 0.02,  capabilities: ['text'] },
+  'meta-llama/llama-3-70b-instruct':    { tier: 'balanced', inputCost: 0.30,  outputCost: 0.40,  capabilities: ['text'] },
+  'meta-llama/llama-3-8b-instruct':     { tier: 'fast',     inputCost: 0.02,  outputCost: 0.02,  capabilities: ['text'] },
+  'meta-llama/llama-3.2-90b-instruct':  { tier: 'premium',  inputCost: 0.35,  outputCost: 0.40,  capabilities: ['text'] },
+  'meta-llama/llama-4-maverick':        { tier: 'premium',  inputCost: 0.20,  outputCost: 0.60,  capabilities: ['text', 'image'] },
+  'meta-llama/llama-4-scout':           { tier: 'balanced', inputCost: 0.10,  outputCost: 0.30,  capabilities: ['text', 'image'] },
+  'meta/muse-spark-1.1':                { tier: 'balanced', inputCost: 0.10,  outputCost: 0.30,  capabilities: ['text'] },
+  'meta/muse-spark-1.2':                { tier: 'balanced', inputCost: 0.10,  outputCost: 0.30,  capabilities: ['text'] },
+
+  // Mistral via OpenRouter
+  'mistralai/mistral-large-latest':     { tier: 'premium',  inputCost: 2.0,   outputCost: 6.0,   capabilities: ['text'] },
+  'mistralai/mistral-large-2407':       { tier: 'premium',  inputCost: 2.0,   outputCost: 6.0,   capabilities: ['text'] },
+  'mistralai/mistral-medium':           { tier: 'balanced', inputCost: 2.7,   outputCost: 8.1,   capabilities: ['text'] },
+  'mistralai/mistral-small-latest':     { tier: 'fast',     inputCost: 0.20,  outputCost: 0.60,  capabilities: ['text'] },
+  'mistralai/mistral-small-2409':       { tier: 'fast',     inputCost: 0.20,  outputCost: 0.60,  capabilities: ['text'] },
+  'mistralai/mistral-nemo':             { tier: 'fast',     inputCost: 0.15,  outputCost: 0.15,  capabilities: ['text'] },
+  'mistralai/mistral-7b-instruct':      { tier: 'fast',     inputCost: 0.03,  outputCost: 0.05,  capabilities: ['text'] },
+  'mistralai/mixtral-8x7b-instruct':    { tier: 'fast',     inputCost: 0.10,  outputCost: 0.10,  capabilities: ['text'] },
+  'mistralai/mixtral-8x22b-instruct':   { tier: 'balanced', inputCost: 0.40,  outputCost: 0.40,  capabilities: ['text'] },
+  'mistralai/codestral-latest':         { tier: 'balanced', inputCost: 0.30,  outputCost: 0.90,  capabilities: ['text'] },
+  'mistralai/pixtral-large-2411':       { tier: 'premium',  inputCost: 2.0,   outputCost: 6.0,   capabilities: ['text', 'image'] },
+  'mistralai/ministral-8b':             { tier: 'fast',     inputCost: 0.10,  outputCost: 0.10,  capabilities: ['text'] },
+  'mistralai/ministral-3b':             { tier: 'fast',     inputCost: 0.04,  outputCost: 0.04,  capabilities: ['text'] },
+
+  // Qwen via OpenRouter
+  'qwen/qwen-2.5-72b-instruct':         { tier: 'balanced', inputCost: 0.13,  outputCost: 0.40,  capabilities: ['text'] },
+  'qwen/qwen-2.5-32b-instruct':         { tier: 'balanced', inputCost: 0.08,  outputCost: 0.24,  capabilities: ['text'] },
+  'qwen/qwen-2.5-14b-instruct':         { tier: 'fast',     inputCost: 0.05,  outputCost: 0.15,  capabilities: ['text'] },
+  'qwen/qwen-2.5-7b-instruct':          { tier: 'fast',     inputCost: 0.02,  outputCost: 0.04,  capabilities: ['text'] },
+  'qwen/qwen-2-72b-instruct':           { tier: 'balanced', inputCost: 0.40,  outputCost: 0.40,  capabilities: ['text'] },
+  'qwen/qwen-2-7b-instruct':            { tier: 'fast',     inputCost: 0.05,  outputCost: 0.10,  capabilities: ['text'] },
+  'qwen/qwen-vl-plus':                  { tier: 'balanced', inputCost: 0.21,  outputCost: 0.63,  capabilities: ['text', 'image'] },
+  'qwen/qwen-vl-max':                   { tier: 'premium',  inputCost: 0.40,  outputCost: 1.20,  capabilities: ['text', 'image'] },
+  'qwen/qwen3-235b-a22b':               { tier: 'premium',  inputCost: 0.20,  outputCost: 0.60,  capabilities: ['text'] },
+  'qwen/qwen3-30b-a3b':                 { tier: 'balanced', inputCost: 0.08,  outputCost: 0.24,  capabilities: ['text'] },
+  'qwen/qwen3-32b':                     { tier: 'balanced', inputCost: 0.08,  outputCost: 0.24,  capabilities: ['text'] },
+  'qwen/qwen3-coder-plus':              { tier: 'balanced', inputCost: 0.40,  outputCost: 1.20,  capabilities: ['text'] },
+  'qwen/qwen3-max':                     { tier: 'premium',  inputCost: 0.60,  outputCost: 1.80,  capabilities: ['text'] },
+  'qwen/qwen3.5-flash':                 { tier: 'fast',     inputCost: 0.05,  outputCost: 0.40,  capabilities: ['text'] },
+  'qwen/qwen3.7-flash':                 { tier: 'fast',     inputCost: 0.05,  outputCost: 0.40,  capabilities: ['text'] },
+  'qwen/qwen3.8-max':                   { tier: 'premium',  inputCost: 0.60,  outputCost: 1.80,  capabilities: ['text'] },
+  'qwen/qwen-long':                     { tier: 'balanced', inputCost: 0.05,  outputCost: 0.20,  capabilities: ['text'] },
+
+  // xAI (Grok) via OpenRouter
+  'x-ai/grok-4':                        { tier: 'premium',  inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+  'x-ai/grok-3':                        { tier: 'premium',  inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+  'x-ai/grok-3-mini':                   { tier: 'fast',     inputCost: 0.30,  outputCost: 0.50,  capabilities: ['text'] },
+  'x-ai/grok-2':                        { tier: 'balanced', inputCost: 2.0,   outputCost: 10.0,  capabilities: ['text', 'image'] },
+  'x-ai/grok-2-vision':                 { tier: 'balanced', inputCost: 2.0,   outputCost: 10.0,  capabilities: ['text', 'image'] },
+  'x-ai/grok-vision-beta':              { tier: 'balanced', inputCost: 5.0,   outputCost: 15.0,  capabilities: ['text', 'image'] },
+
+  // Perplexity via OpenRouter
+  'perplexity/sonar-pro':               { tier: 'premium',  inputCost: 3.0,   outputCost: 15.0,  capabilities: ['text'] },
+  'perplexity/sonar':                   { tier: 'balanced', inputCost: 1.0,   outputCost: 1.0,   capabilities: ['text'] },
+  'perplexity/sonar-reasoning-pro':     { tier: 'premium',  inputCost: 2.0,   outputCost: 8.0,   capabilities: ['text'] },
+  'perplexity/sonar-reasoning':         { tier: 'balanced', inputCost: 1.0,   outputCost: 5.0,   capabilities: ['text'] },
+
+  // Cohere via OpenRouter
+  'cohere/command-a':                   { tier: 'premium',  inputCost: 2.50,  outputCost: 10.0,  capabilities: ['text'] },
+  'cohere/command-r-plus':              { tier: 'balanced', inputCost: 2.50,  outputCost: 10.0,  capabilities: ['text'] },
+  'cohere/command-r':                   { tier: 'fast',     inputCost: 0.15,  outputCost: 0.60,  capabilities: ['text'] },
+  'cohere/command-light':               { tier: 'fast',     inputCost: 0.30,  outputCost: 0.60,  capabilities: ['text'] },
+
+  // Microsoft via OpenRouter
+  'microsoft/phi-4':                    { tier: 'balanced', inputCost: 0.07,  outputCost: 0.14,  capabilities: ['text'] },
+  'microsoft/phi-4-mini':               { tier: 'fast',     inputCost: 0.02,  outputCost: 0.04,  capabilities: ['text'] },
+  'microsoft/phi-3.5-mini':             { tier: 'fast',     inputCost: 0.01,  outputCost: 0.02,  capabilities: ['text'] },
+  'microsoft/phi-3-medium':             { tier: 'fast',     inputCost: 0.05,  outputCost: 0.10,  capabilities: ['text'] },
+  'microsoft/wizardlm-2-8x22b':         { tier: 'premium',  inputCost: 0.50,  outputCost: 0.50,  capabilities: ['text'] },
+
+  // Moonshot/Kimi via OpenRouter
+  'moonshotai/kimi-k2':                 { tier: 'premium',  inputCost: 0.60,  outputCost: 2.50,  capabilities: ['text'] },
+  'moonshotai/kimi-k2-0711':            { tier: 'premium',  inputCost: 0.60,  outputCost: 2.50,  capabilities: ['text'] },
+  'moonshotai/kimi-k2-instruct':        { tier: 'premium',  inputCost: 0.60,  outputCost: 2.50,  capabilities: ['text'] },
+  'moonshotai/kimi-k3':                 { tier: 'premium',  inputCost: 0.60,  outputCost: 2.50,  capabilities: ['text'] },
+  'moonshotai/moonlight-2':             { tier: 'balanced', inputCost: 0.20,  outputCost: 0.60,  capabilities: ['text'] },
+
+  // Open source menores via OpenRouter
+  'allenai/llama-3.1-tulu-3-405b':     { tier: 'premium',  inputCost: 2.0,   outputCost: 2.0,   capabilities: ['text'] },
+  'inflection/inflection-3-pi':         { tier: 'balanced', inputCost: 2.50,  outputCost: 10.0,  capabilities: ['text'] },
+  'inflection/inflection-3-productivity': { tier: 'balanced', inputCost: 2.50, outputCost: 10.0, capabilities: ['text'] },
+  'ai21/jamba-1-5-large':               { tier: 'premium',  inputCost: 2.0,   outputCost: 8.0,   capabilities: ['text'] },
+  'ai21/jamba-1-5-mini':                { tier: 'fast',     inputCost: 0.20,  outputCost: 0.40,  capabilities: ['text'] },
+  'amazon/nova-pro-v1':                 { tier: 'premium',  inputCost: 0.80,  outputCost: 3.20,  capabilities: ['text', 'image'] },
+  'amazon/nova-lite-v1':                { tier: 'fast',     inputCost: 0.06,  outputCost: 0.24,  capabilities: ['text', 'image'] },
+  'amazon/nova-micro-v1':               { tier: 'fast',     inputCost: 0.035, outputCost: 0.14,  capabilities: ['text'] },
 }
 
 /**

@@ -10,12 +10,14 @@ import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { firestore } from '@/lib/firebase'
 import { useAuth } from '@/hooks/useAuth'
 import { useLLMConfig } from '@/hooks/useLLMConfig'
+import { useLastProvider } from '@/hooks/useLastProvider'
 import { PROVIDERS, getProviderInfo, getEnrichedModelsForProvider } from '@/lib/providers'
 import { Users, Globe, Shield, Trash2, Plus, AlertCircle, Check, X, Loader2, Database } from 'lucide-react'
 import type { LLMProvider, LLMConfig } from '@/types'
 import { ModelSelectorTable } from './ModelSelectorTable'
 import { InfoModal } from '@/components/InfoModal'
 import { TemperatureInfo, MaxTokensInfo } from '@/components/llm-info-content'
+import { ActiveConfigPanel } from '@/components/ActiveConfigPanel'
 
 type Tab = 'llm' | 'admins'
 
@@ -113,6 +115,11 @@ export function AdminSettings() {
               Quando você define um LLM global, todos os usuários passam a usá-lo.
               A configuração pessoal fica oculta.
             </span>
+          </div>
+
+          {/* PAINEL DE CONFIGURAÇÃO ATIVA */}
+          <div style={{ margin: '0 12px 8px' }}>
+            <ActiveConfigPanel config={globalConfig} source={globalConfig ? 'global' : 'fallback'} />
           </div>
 
           {globalConfig && (
@@ -251,8 +258,9 @@ function GlobalLLMFormWithSelect({
   initial: Partial<LLMConfig> | null
   onSave: (cfg: LLMConfig) => Promise<void>
 }) {
-  const [provider, setProvider] = useState<LLMProvider>((initial?.provider as LLMProvider) ?? 'google')
-  const [model, setModel] = useState<string>(initial?.model ?? 'gemini-2.5-flash')
+  const { provider: persistedProvider, setProvider: persistProvider } = useLastProvider()
+  const [provider, setProviderState] = useState<LLMProvider>((initial?.provider as LLMProvider) ?? persistedProvider ?? 'openrouter')
+  const [model, setModel] = useState<string>(initial?.model ?? 'openai/gpt-4o-mini')
   const [apiKey, setApiKey] = useState<string>(initial?.apiKey ?? '')
   const [baseUrl, setBaseUrl] = useState<string>(initial?.baseUrl ?? '')
   const [temperature, setTemperature] = useState<number>(initial?.temperature ?? 0.3)
@@ -268,6 +276,11 @@ function GlobalLLMFormWithSelect({
     () => getEnrichedModelsForProvider(provider),
     [provider],
   )
+
+  function setProvider(p: LLMProvider) {
+    setProviderState(p)
+    persistProvider(p)
+  }
 
   async function handleSave() {
     if (!apiKey && provider !== 'ollama') {

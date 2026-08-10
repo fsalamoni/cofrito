@@ -11,10 +11,12 @@ import { useState, useEffect, useMemo } from 'react'
 import { Eye, EyeOff, Save, Trash2, RefreshCw, Check, X, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import { PROVIDERS, getProviderInfo, getEnrichedModelsForProvider } from '@/lib/providers'
 import { useLLMConfig } from '@/hooks/useLLMConfig'
+import { useLastProvider } from '@/hooks/useLastProvider'
 import type { LLMConfig, LLMProvider } from '@/types'
 import { ModelSelectorTable } from './ModelSelectorTable'
 import { InfoModal } from '@/components/InfoModal'
 import { TemperatureInfo, MaxTokensInfo } from '@/components/llm-info-content'
+import { ActiveConfigPanel } from '@/components/ActiveConfigPanel'
 
 export function LLMSettings() {
   const {
@@ -27,8 +29,9 @@ export function LLMSettings() {
     listModels,
   } = useLLMConfig()
 
-  const [provider, setProvider] = useState<LLMProvider>(userConfig?.provider ?? 'google')
-  const [model, setModel] = useState<string>(userConfig?.model ?? 'gemini-2.5-flash')
+  const { provider: persistedProvider, setProvider: persistProvider } = useLastProvider()
+  const [provider, setProviderState] = useState<LLMProvider>(userConfig?.provider ?? persistedProvider ?? 'openrouter')
+  const [model, setModel] = useState<string>(userConfig?.model ?? 'openai/gpt-4o-mini')
   const [apiKey, setApiKey] = useState<string>(userConfig?.apiKey ?? '')
   const [baseUrl, setBaseUrl] = useState<string>(userConfig?.baseUrl ?? '')
   const [temperature, setTemperature] = useState<number>(userConfig?.temperature ?? 0.3)
@@ -37,6 +40,12 @@ export function LLMSettings() {
   const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  // Handler que atualiza o estado E persiste em localStorage
+  function setProvider(p: LLMProvider) {
+    setProviderState(p)
+    persistProvider(p)
+  }
 
   const providerInfo = getProviderInfo(provider)
 
@@ -134,10 +143,8 @@ export function LLMSettings() {
           </div>
         </div>
         {globalConfig && (
-          <div style={{ marginTop: 12, padding: 10, background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
-            <div style={fieldLabelStyle}>Em uso agora</div>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{globalConfig.model}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>Provider: {globalConfig.provider}</div>
+          <div style={{ marginTop: 12 }}>
+            <ActiveConfigPanel config={globalConfig} source="global" />
           </div>
         )}
       </div>
@@ -152,10 +159,16 @@ export function LLMSettings() {
             Provedor de IA
           </h3>
           <p style={{ margin: '4px 0 0', fontSize: 11, color: '#6b7280' }}>
-            Use sua própria API key. Padrão do sistema: {effectiveConfig?.provider ?? 'Google Gemini'}.
+            Use sua própria API key. Padrão do sistema: {effectiveConfig?.provider ?? 'OpenRouter'}.
           </p>
         </div>
       </div>
+
+      {/* PAINEL DE CONFIGURAÇÃO ATIVA */}
+      <ActiveConfigPanel
+        config={effectiveConfig ?? userConfig}
+        source={userConfig ? 'user' : (globalConfig ? 'global' : 'fallback')}
+      />
 
       {/* Provider */}
       <div style={fieldStyle}>

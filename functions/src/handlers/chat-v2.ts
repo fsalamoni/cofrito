@@ -92,8 +92,39 @@ export const chatV2 = onCall(
       const globalCfg = globalSnap.exists ? (globalSnap.data() as LLMConfigLike) : null
       const userCfg = userSnap.exists ? (userSnap.data() as LLMConfigLike) : null
       const effectiveConfig: LLMConfigLike | null = globalCfg || userCfg
-      const provider = effectiveConfig?.provider ?? 'google'
-      const model = effectiveConfig?.model ?? 'gemini-2.5-flash'
+
+      // OpenRouter é o PROVIDOR PRINCIPAL E DE FALLBACK da plataforma.
+      // Hierarquia: user config > global config > OPENROUTER_API_KEY > GEMINI_API_KEY > stub
+      let provider: string
+      let model: string
+      let configToUse: LLMConfigLike
+
+      if (effectiveConfig) {
+        provider = effectiveConfig.provider
+        model = effectiveConfig.model
+        configToUse = effectiveConfig
+      } else if (process.env.OPENROUTER_API_KEY) {
+        provider = 'openrouter'
+        model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+        configToUse = {
+          provider: 'openrouter',
+          model,
+          apiKey: process.env.OPENROUTER_API_KEY,
+        }
+      } else if (process.env.GEMINI_API_KEY) {
+        provider = 'google'
+        model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+        configToUse = {
+          provider: 'google',
+          model,
+          apiKey: process.env.GEMINI_API_KEY,
+        }
+      } else {
+        // Stub mode final (sem nenhuma key configurada)
+        provider = 'google'
+        model = 'gemini-2.5-flash'
+        configToUse = { provider: 'google', model, apiKey: '' }
+      }
 
       // 7. System prompt + mensagens
       const systemPrompt = buildSystemPrompt({
@@ -108,56 +139,69 @@ export const chatV2 = onCall(
       ]
 
       // 8. Geração
-      let content: string
+      let content: string = ''
       let tokensUsed = { input: 0, output: 0, total: 0 }
 
-      if (effectiveConfig) {
-        // Usa config do user/global
-        try {
-          const out = await generateWithProvider({
-            systemPrompt,
-            messages,
-            config: effectiveConfig,
-            geminiApiKey: process.env.GEMINI_API_KEY || '',
-          })
-          content = out.content
-          tokensUsed = out.tokens
-        } catch (err: any) {
-          logger.error('generateWithProvider falhou', { provider, model, err: err?.message })
-          // Fallback para Gemini nativo (admin key)
-          const adminKey = process.env.GEMINI_API_KEY
-          if (adminKey) {
-            const out = await generateWithProvider({
-              systemPrompt,
-              messages,
-              config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: adminKey },
-              geminiApiKey: adminKey,
-            })
-            content = out.content
-            tokensUsed = out.tokens
-          } else {
-            content = `⚠️ Erro ao chamar o provedor ${provider} (${model}): ${err?.message ?? 'desconhecido'}. Verifique sua API key em Configurações.`
-          }
-        }
-      } else if (process.env.GEMINI_API_KEY) {
-        // Fallback legacy: admin Gemini key
+      try {
         const out = await generateWithProvider({
           systemPrompt,
           messages,
-          config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: process.env.GEMINI_API_KEY },
-          geminiApiKey: process.env.GEMINI_API_KEY,
+          config: configToUse,
+          geminiApiKey: process.env.GEMINI_API_KEY || '',
         })
         content = out.content
         tokensUsed = out.tokens
-      } else {
-        // Stub mode
-        const out = await generateWithProvider({
-          systemPrompt,
-          messages,
-          config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: '' },
-          geminiApiKey: '',
-        })
-        content = out.content
+      } catch (err: any) {
+        logger.error('generateWithProvider falhou', { provider, model, err: err?.message })
+        // FALLBACK CHAIN: se a config principal falhar, tenta OpenRouter (se não for já)
+        //   e depois Gemini (se não for já) antes do erro fatal.
+        const tried = new Set([provider])
+        let recovered = false
+        // Tentativa 1: OpenRouter (se ainda não tentou e tiver key)
+        if (!tried.has('openrouter') && process.env.OPENROUTER_API_KEY) {
+          try {
+            const out = await generateWithProvider({
+              systemPrompt,
+              messages,
+              config: {
+                provider: 'openrouter',
+                model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
+                apiKey: process.env.OPENROUTER_API_KEY,
+              },
+              geminiApiKey: process.env.GEMINI_API_KEY || '',
+            })
+            content = out.content
+            tokensUsed = out.tokens
+            provider = 'openrouter'
+            model = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+            recovered = true
+            logger.warn('chat.fallback.openrouter', { userId, originalProvider: effectiveConfig?.provider, originalModel: effectiveConfig?.model })
+          } catch (err2: any) {
+            logger.error('Fallback OpenRouter falhou', { err: err2?.message })
+          }
+        }
+        // Tentativa 2: Gemini nativo (se ainda não tentou e tiver key)
+        if (!recovered && !tried.has('google') && process.env.GEMINI_API_KEY) {
+          try {
+            const out = await generateWithProvider({
+              systemPrompt,
+              messages,
+              config: { provider: 'google', model: 'gemini-2.5-flash', apiKey: process.env.GEMINI_API_KEY },
+              geminiApiKey: process.env.GEMINI_API_KEY,
+            })
+            content = out.content
+            tokensUsed = out.tokens
+            provider = 'google'
+            model = 'gemini-2.5-flash'
+            recovered = true
+            logger.warn('chat.fallback.gemini', { userId, originalProvider: effectiveConfig?.provider, originalModel: effectiveConfig?.model })
+          } catch (err3: any) {
+            logger.error('Fallback Gemini falhou', { err: err3?.message })
+          }
+        }
+        if (!recovered) {
+          content = `⚠️ Erro ao chamar o provedor ${provider} (${model}): ${err?.message ?? 'desconhecido'}. Configure um provedor em Configurações ou contate o admin.`
+        }
       }
 
       // 9. Persistência
