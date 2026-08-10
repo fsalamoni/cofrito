@@ -15,6 +15,8 @@ export function useChat() {
     messages,
     isThinking,
     allowExternal,
+    requestLegalAnalysis,
+    effort,
     addMessage,
     setThinking,
     setConversationId,
@@ -48,6 +50,8 @@ export function useChat() {
           conversationId: conversationId || undefined,
           message: text,
           allowExternal,
+          requestLegalAnalysis,
+          effort,
         })
 
         // 3. Adiciona resposta
@@ -85,7 +89,7 @@ export function useChat() {
         setThinking(false)
       }
     },
-    [user, conversationId, isThinking, allowExternal, addMessage, setThinking, setConversationId, pushToast],
+    [user, conversationId, isThinking, allowExternal, requestLegalAnalysis, effort, addMessage, setThinking, setConversationId, pushToast],
   )
 
   const restart = useCallback(() => {

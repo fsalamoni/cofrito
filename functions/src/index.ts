@@ -78,6 +78,19 @@ export {
   adminSyncSourcePath,
 } from './handlers/admin-documents'
 
+// Admin: configurações globais de pesquisa
+export {
+  getResearchConfig,
+  saveResearchConfig,
+  getWebSearchConfig,
+  saveWebSearchConfig,
+  testWebSearch,
+  getIntranetConfig,
+  saveIntranetConfig,
+  testIntranet,
+  getPublicResearchStatus,
+} from './handlers/admin-research'
+
 // Triggers
 export { onUserCreate } from './handlers/triggers/on-user-create'
 export { onFeedbackCreate } from './handlers/triggers/on-feedback-create'

@@ -26,6 +26,8 @@ const ChatRequestSchema = z.object({
   conversationId: z.string().optional(),
   message: z.string().min(1).max(2000),
   allowExternal: z.boolean().optional().default(false),
+  requestLegalAnalysis: z.boolean().optional().default(false),
+  effort: z.enum(['rapido', 'padrao', 'profundo']).optional().default('padrao'),
   context: z.object({
     documentId: z.string().optional(),
     intent: z.string().optional(),
@@ -43,7 +45,7 @@ export const chatV2 = onCall(
     if (!parsed.success) {
       throw new HttpsError('invalid-argument', 'Mensagem inválida.')
     }
-    const { conversationId, message, allowExternal, context } = parsed.data
+    const { conversationId, message, allowExternal, requestLegalAnalysis, effort, context } = parsed.data
     const start = Date.now()
 
     try {
@@ -151,8 +153,8 @@ export const chatV2 = onCall(
         ? { ...typesMod.DEFAULT_INTRANET_CONFIG, ...intranetSnap.data() }
         : typesMod.DEFAULT_INTRANET_CONFIG
 
-      // 9. Detectar se user pediu análise jurídica (lexical simples)
-      const requiresLegalWriting = /\b(analis[ae]r?|analise|opinar?|elabor[ae]r?|redij[ae]r?|fundament[ae]r?|parecer[ ]?jur[íi]dico)\b/i.test(message)
+      // 9. Detectar se user pediu análise jurídica (toggle manual OU lexical)
+      const requiresLegalWriting = requestLegalAnalysis || /\b(analis[ae]r?|analise|opinar?|elabor[ae]r?|redij[ae]r?|fundament[ae]r?|parecer[ ]?jur[íi]dico)\b/i.test(message)
 
       // 10. PIPELINE MULTI-AGENTE (orchestrator → internal → web → compiler → legal-writer → critic)
       let content: string = ''
@@ -170,7 +172,7 @@ export const chatV2 = onCall(
           sanitizedQuestion: sanitizedText,
           allowExternal,
           requiresLegalWriting,
-          effort: 'medio',
+          effort: effort === 'rapido' ? 'rapido' : effort === 'profundo' ? 'profundo' : 'medio',
           userAreas: profile.inferredAreas,
           systemPrompt,
           llmConfig: configToUse,

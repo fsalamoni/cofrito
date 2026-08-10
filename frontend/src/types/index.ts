@@ -68,6 +68,8 @@ export interface ChatRequest {
   conversationId?: string
   message: string
   allowExternal?: boolean
+  requestLegalAnalysis?: boolean
+  effort?: 'rapido' | 'padrao' | 'profundo'
   context?: {
     documentId?: string
     intent?: string

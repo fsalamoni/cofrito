@@ -19,9 +19,12 @@ import { AgentWidget } from '@/components/AgentWidget'
 import { useChatStore } from '@/stores/chatStore'
 import { DocumentUpload } from './admin/DocumentUpload'
 import { SourcePaths } from './admin/SourcePaths'
-import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity } from 'lucide-react'
+import { ResearchConfig } from './admin/ResearchConfig'
+import { WebSearchConfig } from './admin/WebSearchConfig'
+import { IntranetConfig } from './admin/IntranetConfig'
+import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2 } from 'lucide-react'
 
-type AdminTab = 'llm' | 'documents' | 'paths' | 'users' | 'admins' | 'audit'
+type AdminTab = 'llm' | 'documents' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
 
 export function AdminPage() {
   const { user, signOut } = useAuth()
@@ -39,6 +42,9 @@ export function AdminPage() {
   useEffect(() => {
     if (hash === '#/admin/documents') setTab('documents')
     else if (hash === '#/admin/paths') setTab('paths')
+    else if (hash === '#/admin/research') setTab('research')
+    else if (hash === '#/admin/websearch') setTab('websearch')
+    else if (hash === '#/admin/intranet') setTab('intranet')
     else if (hash === '#/admin/users') setTab('users')
     else if (hash === '#/admin/admins') setTab('admins')
     else if (hash === '#/admin/audit') setTab('audit')
@@ -136,6 +142,30 @@ export function AdminPage() {
             />
           </SidebarSection>
 
+          <SidebarSection title="Pipeline de Pesquisa">
+            <SidebarItem
+              icon={<Search size={16} />}
+              label="Configurações de Pesquisa"
+              active={tab === 'research'}
+              onClick={() => { window.location.hash = '#/admin/research'; setTab('research') }}
+              hint="Recência, cobertura, análise jurídica"
+            />
+            <SidebarItem
+              icon={<Globe2 size={16} />}
+              label="Pesquisa Web (externa)"
+              active={tab === 'websearch'}
+              onClick={() => { window.location.hash = '#/admin/websearch'; setTab('websearch') }}
+              hint="Tavily/Serper/Brave/Perplexity + chaves"
+            />
+            <SidebarItem
+              icon={<Building2 size={16} />}
+              label="Intranet MPRS"
+              active={tab === 'intranet'}
+              onClick={() => { window.location.hash = '#/admin/intranet'; setTab('intranet') }}
+              hint="Login, paths de busca e docs"
+            />
+          </SidebarSection>
+
           <SidebarSection title="Administração">
             <SidebarItem
               icon={<Users size={16} />}
@@ -192,6 +222,38 @@ export function AdminPage() {
                 pastas locais, WebDAV, SMB/rede, Google Drive ou OneDrive.
               </p>
               <SourcePaths />
+            </>
+          )}
+          {tab === 'research' && (
+            <>
+              <h2 style={pageTitleStyle}>Configurações Globais de Pesquisa</h2>
+              <p style={pageDescStyle}>
+                Define como o pipeline multi-agente busca, filtra e apresenta os documentos.
+                As REGRAS PRIMORDIAIS (não inventar, transcrição literal, links) são sempre respeitadas.
+              </p>
+              <ResearchConfig />
+            </>
+          )}
+          {tab === 'websearch' && (
+            <>
+              <h2 style={pageTitleStyle}>Pesquisa Web (externa)</h2>
+              <p style={pageDescStyle}>
+                Configure o provedor de pesquisa externa. Por padrão a pesquisa web está
+                <strong> desabilitada</strong> — o Cofrito usa apenas o corpus interno.
+                Quando habilitada, o toggle "Pesquisa web" no chat fica disponível.
+              </p>
+              <WebSearchConfig />
+            </>
+          )}
+          {tab === 'intranet' && (
+            <>
+              <h2 style={pageTitleStyle}>Intranet MPRS</h2>
+              <p style={pageDescStyle}>
+                Configure o acesso à intranet do MP/RS (com login/senha). A intranet faz parte
+                do <strong>corpus interno</strong> e é consultada automaticamente, sem precisar
+                do toggle "Pesquisa web".
+              </p>
+              <IntranetConfig />
             </>
           )}
           {tab === 'users' && <UsersWithLLM />}

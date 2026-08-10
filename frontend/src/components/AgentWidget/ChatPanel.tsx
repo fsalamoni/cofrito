@@ -10,10 +10,12 @@
  *  - Input com textarea auto-resize
  *  - Botão stop durante geração
  *  - Toggle de modo (corpus-only / informações externas)
+ *  - Toggle "Análise jurídica" (solicita Redator Jurídico)
+ *  - Toggle de esforço (rápido / padrão / profundo)
  *  - Atalho: Enter envia, Shift+Enter quebra linha
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Send, Square, Database, Globe, MessageSquarePlus } from 'lucide-react'
+import { Send, Square, Database, Globe, MessageSquarePlus, Scale } from 'lucide-react'
 import { useChat } from '@/hooks/useChat'
 import { useAuth } from '@/hooks/useAuth'
 import { useChatStore } from '@/stores/chatStore'
@@ -29,6 +31,10 @@ export function ChatPanel() {
   const userProfile = useAuthStore((s) => s.user)
   const allowExternal = useChatStore((s) => s.allowExternal)
   const setAllowExternal = useChatStore((s) => s.setAllowExternal)
+  const requestLegalAnalysis = useChatStore((s) => s.requestLegalAnalysis)
+  const setRequestLegalAnalysis = useChatStore((s) => s.setRequestLegalAnalysis)
+  const effort = useChatStore((s) => s.effort)
+  const setEffort = useChatStore((s) => s.setEffort)
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -96,14 +102,14 @@ export function ChatPanel() {
       </div>
 
       <div style={inputAreaStyle}>
-        {/* Mode toggle */}
+        {/* Toggles de modo */}
         <div style={modeToggleStyle} role="group" aria-label="Modo de resposta">
           <button
             type="button"
             onClick={() => setAllowExternal(false)}
             className={`cofrito-mode-btn ${!allowExternal ? 'active' : ''}`}
             aria-pressed={!allowExternal}
-            title="Responde apenas com material do acervo do CAOCIPP"
+            title="Responde apenas com material do acervo (corpus + intranet MPRS)"
             style={{
               ...modeBtnStyle,
               ...(!allowExternal ? modeBtnActiveStyle : {}),
@@ -117,15 +123,49 @@ export function ChatPanel() {
             onClick={() => setAllowExternal(true)}
             className={`cofrito-mode-btn ${allowExternal ? 'active' : ''}`}
             aria-pressed={allowExternal}
-            title="Permite complementar com fontes externas"
+            title="Permite complementar com fontes web externas (Tavily/Serper/Brave)"
             style={{
               ...modeBtnStyle,
               ...(allowExternal ? modeBtnActiveStyle : {}),
             }}
           >
             <Globe size={13} />
-            <span>Permitir informações externas</span>
+            <span>+ Web externa</span>
           </button>
+        </div>
+
+        {/* Toggle "Análise jurídica" (Redator Jurídico) */}
+        <div style={modeToggleStyle} role="group" aria-label="Análise jurídica">
+          <button
+            type="button"
+            onClick={() => setRequestLegalAnalysis(!requestLegalAnalysis)}
+            className={`cofrito-mode-btn ${requestLegalAnalysis ? 'active' : ''}`}
+            aria-pressed={requestLegalAnalysis}
+            title={requestLegalAnalysis
+              ? 'O Redator Jurídico vai produzir análise jurídica baseada SOMENTE nos documentos encontrados'
+              : 'Sem análise jurídica — o Cofrito entrega apenas os documentos encontrados'}
+            style={{
+              ...modeBtnStyle,
+              ...(requestLegalAnalysis ? modeBtnLegalActiveStyle : {}),
+              flex: 1,
+            }}
+          >
+            <Scale size={13} />
+            <span>{requestLegalAnalysis ? 'Análise jurídica: ON' : 'Análise jurídica'}</span>
+          </button>
+
+          {/* Esforço do pipeline */}
+          <select
+            value={effort}
+            onChange={(e) => setEffort(e.target.value as any)}
+            title="Esforço do pipeline: rápido (3 iter, sem crítico), padrão (6 iter), profundo (10 iter + crítico)"
+            style={effortSelectStyle}
+            aria-label="Esforço do pipeline"
+          >
+            <option value="rapido">⚡ Rápido</option>
+            <option value="padrao">● Padrão</option>
+            <option value="profundo">🔬 Profundo</option>
+          </select>
         </div>
 
         {/* Input */}
@@ -248,6 +288,25 @@ const modeBtnActiveStyle: React.CSSProperties = {
   background: '#ffffff',
   color: '#1a4d8f',
   boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+}
+
+const modeBtnLegalActiveStyle: React.CSSProperties = {
+  background: '#7c2d12',
+  color: '#ffffff',
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+}
+
+const effortSelectStyle: React.CSSProperties = {
+  border: '1px solid #e5e7eb',
+  background: '#ffffff',
+  color: '#374151',
+  borderRadius: 6,
+  padding: '4px 8px',
+  fontSize: 11,
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  outline: 'none',
+  minWidth: 100,
 }
 
 const formStyle: React.CSSProperties = {

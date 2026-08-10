@@ -3,6 +3,7 @@
  * Admin: upload e gestão de documentos do corpus.
  *
  *  - adminUploadDocument: recebe base64 ou URL, persiste no Storage, ingere
+ *    inline (chunk + embed) para ficar imediatamente disponível no researcher
  *  - adminListDocuments: lista todos os documentos do corpus
  *  - adminDeleteDocument: remove documento + chunks
  *  - adminReingestDocument: re-gera embeddings de um doc específico
@@ -13,6 +14,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { assertAdminMaster } from '../middleware/auth'
+import { ingestInline } from '../services/ingestion-buffer'
 
 // ── Upload de documento ─────────────────────────────────────────────────
 
@@ -22,7 +24,7 @@ export const adminUploadDocument = onCall(
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
 
-    const { fileName, contentBase64, mimeType, title, type, area, tags } = request.data as {
+    const { fileName, contentBase64, mimeType, title, type, area, tags, autoIngest } = request.data as {
       fileName: string
       contentBase64: string
       mimeType: string
@@ -30,6 +32,7 @@ export const adminUploadDocument = onCall(
       type?: string
       area?: string[]
       tags?: string[]
+      autoIngest?: boolean
     }
 
     if (!fileName || !contentBase64) {
@@ -45,7 +48,7 @@ export const adminUploadDocument = onCall(
 
     // Gera docId estável baseado no nome do arquivo
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const docId = `uploaded-${Date.now()}-${safeName.replace(/\.[^.]+$/, '')}`
+    const docId = `uploaded-${Date.now()}-${safeName.replace(/\.[^.]+$/, '').slice(0, 64)}`
     const path = `corpus/uploaded/${docId}/${safeName}`
 
     // Upload para Storage
@@ -61,20 +64,21 @@ export const adminUploadDocument = onCall(
       },
     })
 
-    // Cria/atualiza documento no Firestore (corpus/uploaded)
+    // Cria/atualiza documento no Firestore (corpus/uploaded) — placeholder
     const docRef = db.doc(`corpus/uploaded/${docId}`)
     const inferTitle = title || safeName.replace(/\.[^.]+$/, '')
+    const inferredType = type ?? inferType(fileName)
     await docRef.set(
       {
         id: docId,
         title: inferTitle,
-        type: type ?? inferType(fileName),
+        type: inferredType,
         fileName: safeName,
         mimeType: mimeType ?? 'application/octet-stream',
         storagePath: path,
         area: area ?? ['geral'],
         tags: tags ?? [],
-        status: 'pendente_ingestao', // admin precisa rodar ingestão manual depois
+        status: 'processando',
         version: 1,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -84,11 +88,59 @@ export const adminUploadDocument = onCall(
       { merge: true },
     )
 
+    // Ingestão inline (extrai texto, chunk, embed, persiste em corpus/{docId})
+    let ingestResult: { ok: boolean; chunksCreated: number; error?: string } = { ok: false, chunksCreated: 0, error: 'skipped' }
+    if (autoIngest !== false) {
+      try {
+        const text = await extractText(buffer, mimeType || 'application/octet-stream', fileName)
+        if (text && text.length > 10) {
+          const apiKey = process.env.GEMINI_API_KEY || ''
+          const result = await ingestInline({
+            docId,
+            text,
+            title: inferTitle,
+            type: inferredType,
+            area: area ?? ['geral'],
+            tags: tags ?? [],
+            source: 'admin-upload',
+            url: `gs://${bucket.name}/${path}`,
+            storagePath: path,
+            apiKey,
+          })
+          ingestResult = { ok: result.ok, chunksCreated: result.chunksCreated, error: result.error }
+          await docRef.set(
+            {
+              status: result.ok ? 'ativo' : 'erro_ingestao',
+              chunksCount: result.chunksCreated,
+              ingestedAt: FieldValue.serverTimestamp(),
+              ingestError: result.error || null,
+            },
+            { merge: true },
+          )
+        } else {
+          await docRef.set(
+            { status: 'arquivo_nao_suportado', ingestError: 'Texto vazio após extração' },
+            { merge: true },
+          )
+        }
+      } catch (err: any) {
+        await docRef.set(
+          { status: 'erro_ingestao', ingestError: err?.message || String(err) },
+          { merge: true },
+        )
+        ingestResult = { ok: false, chunksCreated: 0, error: err?.message }
+      }
+    }
+
     return {
       ok: true,
       docId,
       path,
-      message: 'Documento salvo. Use o botão "Re-ingerir corpus" para processar embeddings.',
+      chunksCreated: ingestResult.chunksCreated,
+      ingested: ingestResult.ok,
+      message: ingestResult.ok
+        ? `Documento salvo e indexado (${ingestResult.chunksCreated} chunks).`
+        : `Documento salvo, mas ingestão falhou: ${ingestResult.error || 'desconhecido'}`,
     }
   },
 )
@@ -240,6 +292,47 @@ export const adminSyncSourcePath = onCall(
 )
 
 // ── Util ───────────────────────────────────────────────────────────────
+
+/**
+ * Extrai texto de um buffer conforme mimeType/extensão.
+ * Suporta: txt, md, html, pdf, docx.
+ */
+async function extractText(buffer: Buffer, mimeType: string, fileName: string): Promise<string> {
+  const ext = (fileName.split('.').pop() || '').toLowerCase()
+  const isText =
+    mimeType.startsWith('text/') ||
+    ['md', 'markdown', 'txt', 'csv', 'log', 'json', 'xml', 'html', 'htm'].includes(ext)
+  if (isText) {
+    return buffer.toString('utf-8')
+  }
+  if (ext === 'pdf' || mimeType === 'application/pdf') {
+    try {
+      // dynamic import para não inflar o cold start
+      const pdfParse = (await import('pdf-parse')).default
+      const result = await pdfParse(buffer)
+      return result.text || ''
+    } catch (err: any) {
+      // Fallback: retornar vazio e admin usa outro formato
+      console.warn('PDF parse falhou:', err?.message)
+      return ''
+    }
+  }
+  if (ext === 'docx' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    try {
+      const mammoth = await import('mammoth')
+      const result = await mammoth.extractRawText({ buffer })
+      return result.value || ''
+    } catch (err: any) {
+      console.warn('DOCX parse falhou:', err?.message)
+      return ''
+    }
+  }
+  if (ext === 'html' || mimeType === 'text/html') {
+    // Strip tags simples
+    return buffer.toString('utf-8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  }
+  return ''
+}
 
 function inferType(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase()

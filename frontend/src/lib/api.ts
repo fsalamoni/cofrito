@@ -83,6 +83,22 @@ export const api = {
     httpsCallable<{ provider: string; apiKey: string; baseUrl?: string }, Array<{ id: string; name?: string; contextWindow?: number }>>(
       functions, 'listLLMModels',
     )({ provider, apiKey, baseUrl }),
+
+  // Admin: configurações globais de pesquisa
+  getResearchConfig: () => httpsCallable<void, any>(functions, 'getResearchConfig')(),
+  saveResearchConfig: (config: any) =>
+    httpsCallable<any, { ok: boolean; savedAt: string }>(functions, 'saveResearchConfig')(config),
+
+  getWebSearchConfig: () => httpsCallable<void, any>(functions, 'getWebSearchConfig')(),
+  saveWebSearchConfig: (config: any) =>
+    httpsCallable<any, { ok: boolean; savedAt: string }>(functions, 'saveWebSearchConfig')(config),
+  testWebSearch: (data?: { query?: string }) =>
+    httpsCallable<{ query?: string }, any>(functions, 'testWebSearch')(data || {}),
+
+  getIntranetConfig: () => httpsCallable<void, any>(functions, 'getIntranetConfig')(),
+  saveIntranetConfig: (config: any) =>
+    httpsCallable<any, { ok: boolean; savedAt: string }>(functions, 'saveIntranetConfig')(config),
+  testIntranet: () => httpsCallable<void, any>(functions, 'testIntranet')(),
 }
 
 export type { HttpsCallableResult }
