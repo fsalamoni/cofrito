@@ -18,6 +18,7 @@
 import { HttpsError, onCall, onRequest, type Request } from 'firebase-functions/v2/https'
 import { getFirestore } from '../services/firestore'
 import { logger } from 'firebase-functions'
+import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import {
   DEFAULT_RESEARCH_CONFIG,
   DEFAULT_INTRANET_CONFIG,
@@ -50,9 +51,8 @@ export const getResearchConfig = onCall({ cors: true, enforceAppCheck: false }, 
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await getDb().doc('admin-config/research').get()
-  if (!snap.exists) return null
-  return snap.data() as ResearchConfig
+  const loaded = await loadConfigDoc<ResearchConfig>('admin-config/research', 'research')
+  return loaded ? loaded.data : null
 })
 
 export const saveResearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: true; savedAt: string }> => {
@@ -77,13 +77,12 @@ export const saveResearchConfig = onCall({ cors: true, enforceAppCheck: false },
   if (cfg.minRelevanceScore < 0 || cfg.minRelevanceScore > 1) {
     throw new HttpsError('invalid-argument', 'minRelevanceScore deve estar entre 0 e 1')
   }
-  const savedAt = new Date().toISOString()
-  await getDb().doc('admin-config/research').set({
-    ...cfg,
-    updatedAt: savedAt,
-    updatedBy: req.auth!.uid,
+  const result = await saveConfigDoc(cfg as any, {
+    uid: req.auth!.uid,
+    path: 'admin-config/research',
+    tag: 'research',
   })
-  return { ok: true, savedAt }
+  return { ok: true, savedAt: result.savedAt }
 })
 
 // ── Web Search ─────────────────────────────────────────────────────────────
@@ -93,10 +92,10 @@ export const getWebSearchConfig = onCall({ cors: true, enforceAppCheck: false },
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await getDb().doc('admin-config/web-search').get()
-  if (!snap.exists) return null
+  const loaded = await loadConfigDoc<WebSearchConfig>('admin-config/web-search', 'web-search')
+  if (!loaded) return null
   // NUNCA retornar apiKey em texto claro para o frontend — usar campo hasApiKey
-  const data = snap.data() as WebSearchConfig
+  const data = loaded.data
   return { ...data, apiKey: data.apiKey ? '••••••' : undefined, _hasApiKey: !!data.apiKey } as any
 })
 
@@ -109,7 +108,7 @@ export const saveWebSearchConfig = onCall({ cors: true, enforceAppCheck: false }
   if (!cfg || typeof cfg !== 'object') {
     throw new HttpsError('invalid-argument', 'Config inválida')
   }
-  const validProviders = ['tavily', 'serper', 'brave', 'perplexity', 'mprs-intranet']
+  const validProviders = ['tavily', 'serper', 'brave', 'perplexity', 'mprs-intranet', 'datajud']
   if (!validProviders.includes(cfg.provider)) {
     throw new HttpsError('invalid-argument', `provider inválido: ${cfg.provider}`)
   }
@@ -123,14 +122,13 @@ export const saveWebSearchConfig = onCall({ cors: true, enforceAppCheck: false }
       finalApiKey = ''
     }
   }
-  const savedAt = new Date().toISOString()
-  await getDb().doc('admin-config/web-search').set({
-    ...cfg,
-    apiKey: finalApiKey,
-    updatedAt: savedAt,
-    updatedBy: req.auth!.uid,
+  const cfgWithKey = { ...cfg, apiKey: finalApiKey }
+  const result = await saveConfigDoc(cfgWithKey as any, {
+    uid: req.auth!.uid,
+    path: 'admin-config/web-search',
+    tag: 'web-search',
   })
-  return { ok: true, savedAt }
+  return { ok: true, savedAt: result.savedAt }
 })
 
 /**
@@ -142,11 +140,11 @@ export const testWebSearch = onCall({ cors: true, enforceAppCheck: false }, asyn
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const cfgSnap = await getDb().doc('admin-config/web-search').get()
-  if (!cfgSnap.exists) {
+  const cfgLoaded = await loadConfigDoc<WebSearchConfig>('admin-config/web-search', 'web-search')
+  if (!cfgLoaded) {
     return { ok: false, resultCount: 0, latencyMs: 0, error: 'Web search não configurado' }
   }
-  const cfg = cfgSnap.data() as WebSearchConfig
+  const cfg = cfgLoaded.data
   if (!cfg.apiKey && cfg.provider !== 'mprs-intranet') {
     return { ok: false, resultCount: 0, latencyMs: 0, error: 'API key não configurada' }
   }
@@ -183,10 +181,10 @@ export const getIntranetConfig = onCall({ cors: true, enforceAppCheck: false }, 
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await getDb().doc('admin-config/intranet').get()
-  if (!snap.exists) return null
-  const data = snap.data() as IntranetConfig
+  const loaded = await loadConfigDoc<IntranetConfig>('admin-config/intranet', 'intranet')
+  if (!loaded) return null
   // Mascarar senha
+  const data = loaded.data
   return { ...data, password: data.password ? '••••••' : undefined, _hasPassword: !!data.password } as any
 })
 
@@ -215,14 +213,13 @@ export const saveIntranetConfig = onCall({ cors: true, enforceAppCheck: false },
       finalPassword = ''
     }
   }
-  const savedAt = new Date().toISOString()
-  await getDb().doc('admin-config/intranet').set({
-    ...cfg,
-    password: finalPassword,
-    updatedAt: savedAt,
-    updatedBy: req.auth!.uid,
+  const cfgWithPwd = { ...cfg, password: finalPassword }
+  const result = await saveConfigDoc(cfgWithPwd as any, {
+    uid: req.auth!.uid,
+    path: 'admin-config/intranet',
+    tag: 'intranet',
   })
-  return { ok: true, savedAt }
+  return { ok: true, savedAt: result.savedAt }
 })
 
 /**
@@ -233,11 +230,11 @@ export const testIntranet = onCall({ cors: true, enforceAppCheck: false }, async
   if (!(await isAdminMaster(req.auth!.uid))) {
     throw new HttpsError('permission-denied', 'Apenas admin master')
   }
-  const snap = await getDb().doc('admin-config/intranet').get()
-  if (!snap.exists) {
+  const loaded = await loadConfigDoc<IntranetConfig>('admin-config/intranet', 'intranet')
+  if (!loaded) {
     return { ok: false, latencyMs: 0, error: 'Intranet não configurada' }
   }
-  const cfg = snap.data() as IntranetConfig
+  const cfg = loaded.data
   if (!cfg.enabled || !cfg.baseUrl) {
     return { ok: false, latencyMs: 0, error: 'Intranet desabilitada' }
   }
@@ -284,17 +281,17 @@ export const testIntranet = onCall({ cors: true, enforceAppCheck: false }, async
 export const getPublicResearchStatus = onRequest({ cors: true }, async (_req: Request, res) => {
   res.set('Access-Control-Allow-Origin', '*')
   try {
-    // Usar getFirestore() DIRETAMENTE (não via getDb() wrapper) para garantir
-    // que o admin SDK pega a app default do runtime do Firebase Functions
-    const db = getFirestore()
-    const research = await db.doc('admin-config/research').get()
-    const web = await db.doc('admin-config/web-search').get()
-    const intranet = await db.doc('admin-config/intranet').get()
+    // loadConfigDoc trata tanto docs novos (com envelope) quanto legacy
+    const [researchLoaded, webLoaded, intranetLoaded] = await Promise.all([
+      loadConfigDoc<ResearchConfig>('admin-config/research', 'research'),
+      loadConfigDoc<WebSearchConfig>('admin-config/web-search', 'web-search'),
+      loadConfigDoc<IntranetConfig>('admin-config/intranet', 'intranet'),
+    ])
     res.json({
-      research: research.exists ? research.data() : DEFAULT_RESEARCH_CONFIG,
-      webSearchEnabled: web.exists && (web.data() as WebSearchConfig).enabled,
-      webSearchProvider: web.exists ? (web.data() as WebSearchConfig).provider : null,
-      intranetEnabled: intranet.exists && (intranet.data() as IntranetConfig).enabled,
+      research: researchLoaded ? researchLoaded.data : DEFAULT_RESEARCH_CONFIG,
+      webSearchEnabled: !!webLoaded?.data.enabled,
+      webSearchProvider: webLoaded?.data.provider ?? null,
+      intranetEnabled: !!intranetLoaded?.data.enabled,
     })
   } catch (err) {
     const e = err as { message?: string }

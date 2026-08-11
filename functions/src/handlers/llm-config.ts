@@ -8,6 +8,7 @@
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from '../services/firestore'
+import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { assertAdminMaster } from '../middleware/auth'
 import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../services/llm-providers'
 
@@ -73,10 +74,9 @@ export const adminGetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
   async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
-  const db = getFirestore()
-  const snap = await db.doc('admin-config/llm').get()
-  if (!snap.exists) return null
-  const data = snap.data() as any
+  const loaded = await loadConfigDoc<any>('admin-config/llm', 'llm-global')
+  if (!loaded) return null
+  const data = loaded.data
   return {
     provider: data.provider,
     model: data.model,
@@ -84,7 +84,7 @@ export const adminGetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
     scope: 'global',
     hasApiKey: !!data.apiKey,
     apiKeyMasked: data.apiKey ? maskKey(data.apiKey) : '',
-    updatedAt: data.updatedAt,
+    updatedAt: loaded.updatedAt,
   }
 })
 
@@ -93,21 +93,19 @@ export const adminSetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdminMaster(request.auth.uid)
   const cfg = request.data as LLMConfigLike | null
-  const db = getFirestore()
   if (!cfg) {
-    await db.doc('admin-config/llm').delete()
+    await getFirestore().doc('admin-config/llm').delete()
     return { ok: true, removed: true }
   }
-  await db.doc('admin-config/llm').set(
+  const result = await saveConfigDoc(
+    { ...cfg, scope: 'global' },
     {
-      ...cfg,
-      scope: 'global',
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedBy: request.auth.uid,
+      uid: request.auth!.uid,
+      path: 'admin-config/llm',
+      tag: 'llm-global',
     },
-    { merge: true },
   )
-  return { ok: true }
+  return { ok: true, savedAt: result.savedAt }
 })
 
 // ── Listagem de modelos (chamada pelo front) ─────────────────────────────

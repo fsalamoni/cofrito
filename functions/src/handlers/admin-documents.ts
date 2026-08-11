@@ -12,6 +12,7 @@
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from '../services/firestore'
+import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from 'firebase-admin/storage'
 import { assertAdminMaster } from '../middleware/auth'
 import { ingestInline } from '../services/ingestion-buffer'
@@ -209,12 +210,9 @@ export const adminGetSourcePaths = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
-    const db = getFirestore()
-    const snap = await db.doc('admin-config/source-paths').get()
-    if (!snap.exists) {
-      return { paths: [] }
-    }
-    return snap.data()
+      const loaded = await loadConfigDoc<{ paths: any[] }>('admin-config/source-paths', 'source-paths')
+    if (!loaded) return { paths: [] }
+    return { paths: loaded.data.paths || [] }
   },
 )
 
@@ -227,26 +225,23 @@ export const adminSetSourcePaths = onCall(
     if (!Array.isArray(paths)) {
       throw new HttpsError('invalid-argument', 'paths deve ser array')
     }
-    const db = getFirestore()
-    await db.doc('admin-config/source-paths').set(
-      {
-        paths: paths.map((p, i) => ({
-          id: p.id || `path-${Date.now()}-${i}`,
-          name: p.name || `Pasta ${i + 1}`,
-          type: p.type || 'local',
-          uri: p.uri || '',
-          enabled: p.enabled !== false,
-          schedule: p.schedule || 'manual',
-          lastSyncAt: p.lastSyncAt || null,
-          createdAt: p.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })),
-        updatedAt: FieldValue.serverTimestamp(),
-        updatedBy: request.auth.uid,
-      },
-      { merge: true },
-    )
-    return { ok: true, count: paths.length }
+    const pathsNormalized = paths.map((p, i) => ({
+      id: p.id || `path-${Date.now()}-${i}`,
+      name: p.name || `Pasta ${i + 1}`,
+      type: p.type || 'local',
+      uri: p.uri || '',
+      enabled: p.enabled !== false,
+      schedule: p.schedule || 'manual',
+      lastSyncAt: p.lastSyncAt || null,
+      createdAt: p.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }))
+    const result = await saveConfigDoc({ paths: pathsNormalized }, {
+      uid: request.auth.uid,
+      path: 'admin-config/source-paths',
+      tag: 'source-paths',
+    })
+    return { ok: true, count: paths.length, savedAt: result.savedAt }
   },
 )
 
@@ -262,23 +257,22 @@ export const adminSyncSourcePath = onCall(
     const { pathId } = request.data as { pathId: string }
     if (!pathId) throw new HttpsError('invalid-argument', 'pathId obrigatório')
 
-    const db = getFirestore()
-    const snap = await db.doc('admin-config/source-paths').get()
-    if (!snap.exists) {
+    const loaded = await loadConfigDoc<{ paths: any[] }>('admin-config/source-paths', 'source-paths')
+    if (!loaded) {
       throw new HttpsError('not-found', 'Nenhuma configuração de paths')
     }
-    const data = snap.data() as any
-    const path = (data.paths || []).find((p: any) => p.id === pathId)
+    const path = (loaded.data.paths || []).find((p: any) => p.id === pathId)
     if (!path) throw new HttpsError('not-found', `Path ${pathId} não encontrado`)
 
     // Atualiza lastSyncAt
-    const newPaths = (data.paths || []).map((p: any) =>
+    const newPaths = (loaded.data.paths || []).map((p: any) =>
       p.id === pathId ? { ...p, lastSyncAt: new Date().toISOString() } : p,
     )
-    await db.doc('admin-config/source-paths').set(
-      { paths: newPaths, updatedAt: FieldValue.serverTimestamp() },
-      { merge: true },
-    )
+    await saveConfigDoc({ paths: newPaths }, {
+      uid: request.auth!.uid,
+      path: 'admin-config/source-paths',
+      tag: 'source-paths',
+    })
 
     // NOTA: a sincronização real (varrer o path) precisa de um agente local
     // ou Cloud Function com acesso à rede. Aqui só marcamos como sincronizado
