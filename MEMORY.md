@@ -50,3 +50,30 @@ Sempre que um bot pode ser perguntado sobre si mesmo, o system prompt
 deve ter uma secao # IDENTIDADE. E qualquer chamada de LLM/pipeline
 deve ter timeout - senao o pipeline pode travar indefinidamente.
 Padrao: timeout por agente (90s) + watchdog geral (240s).
+
+### 2026-08-11 — Cofrito Bot Identity Fast-Path (Deploy #85 SUCCESS)
+
+**PROBLEMA: bot AINDA nao respondia "quem e voce" mesmo com system prompt atualizado.**
+
+ROOT CAUSE: Pipeline SEMPRE passava pelo orchestrator + researcher + compiler +
+legal-writer. Researcher-internal buscava no corpus, nao achava nada (porque "quem
+e voce" nao e' pergunta juridica), e o legal-writer caia no fallback "nao encontrei
+material". A regra #0 do system prompt nao era suficiente.
+
+**SOLUCAO: Fast-path ANTES do pipeline.**
+
+- self-detect.ts: 20+ patterns de deteccao (quem e voce, o que e o Cofrito, como
+  funciona, quem te criou, para que serve, me ajude, etc.) + normalizacao de
+  acentos (\b nao funciona com acentos em JS - normalize() resolve)
+- IDENTITY_RESPONSE canonica: texto institucional completo (500+ chars)
+- isAboutItself(): retorna true se match. Filtro de tamanho (>200 chars = juridica)
+- pipeline.ts: if (isAboutItself(question)) return fast-path; ANTES do orchestrator
+- types.ts: isAboutItself? adicionado ao OrchestratorPlan
+- 13 testes do self-detect (todos passam)
+
+**OUTROS FIXES:**
+- adminListDocuments 500: try/catch com fallback para query sem orderBy
+- 5 TypeErrors no console (query/create): SW v15 -> v16 para forcar reload
+- Testes: 118 passing (era 105, +13 do self-detect)
+
+**DEPLOY #85 SUCCESS** - tudo verde.
