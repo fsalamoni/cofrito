@@ -26,19 +26,11 @@
  */
 
 import { setGlobalOptions } from 'firebase-functions/v2'
-import { initializeApp, getApps } from 'firebase-admin/app'
 
-// Garante que o admin SDK está inicializado no module load.
-// Em Cloud Functions Gen 2, isso às vezes é lazy e o getFirestore()
-// falha com "default Firebase app does not exist" em runtime.
-if (getApps().length === 0) {
-  try {
-    initializeApp()
-  } catch (e) {
-    // Já inicializado por outro módulo ou pelo runtime
-    console.warn('admin.initializeApp no module load falhou:', (e as Error).message)
-  }
-}
+// NOTA: NÃO chamar initializeApp() aqui. Em Cloud Functions Gen 2,
+// o admin é inicializado como "__FIREBASE_FUNCTIONS_SDK__" (nao "[DEFAULT]"),
+// então getFirestore() sem app falha. O shim services/firestore.ts
+// detecta a app correta e usa getFirestore(app) explicitamente.
 
 setGlobalOptions({
   region: 'southamerica-east1',
