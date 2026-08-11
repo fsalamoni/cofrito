@@ -170,6 +170,7 @@ export const chatV2 = onCall(
 
       // 10. PIPELINE MULTI-AGENTE (orchestrator → internal → web → compiler → legal-writer → critic)
       let content: string = ''
+      let pipelineError: string | null = null
       let tokensUsed = { input: 0, output: 0, total: 0 }
       let agentRunsCount = 0
       let iterations = 0
@@ -217,7 +218,8 @@ export const chatV2 = onCall(
         tokensUsed.total = tokensUsed.input + tokensUsed.output
       } catch (err: any) {
         logger.error('pipeline falhou', { err: err?.message })
-        content = `⚠️ Erro no pipeline de agentes: ${err?.message ?? 'desconhecido'}.`
+        pipelineError = err?.message ?? 'desconhecido'
+        content = `⚠️ Erro no pipeline de agentes: ${pipelineError}. Tente novamente.`
       }
 
       // 9. Persistência (try/catch para NÃO matar a request se Firestore falhar)
@@ -264,6 +266,7 @@ export const chatV2 = onCall(
         inScope: true,
         allowExternal,
         feedbackToken: messageId,
+        pipelineError,
         suggestions: [],
         actions: [{ type: 'open_consulta', label: 'Abrir consulta formal' }],
         usage: {

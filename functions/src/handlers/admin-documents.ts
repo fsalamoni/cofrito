@@ -14,7 +14,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
-import { analyzeAcervoDoc } from '../services/acervo-analyzer'
+import { analyzeAcervoDoc, type AcervoPipelineFlags } from '../services/acervo-analyzer'
 import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from 'firebase-admin/storage'
@@ -491,6 +491,44 @@ function inferType(fileName: string): string {
  * Roda analyzeAcervoDoc em background (sem bloquear a response).
  * Carrega o LLM config do admin global, roda os 3 agentes, salva resultado no Firestore.
  */
+
+
+/**
+ * Resolve a config do pipeline de analise do acervo.
+ * Retorna defaults (tudo ON, llmOverride null) se nao existir.
+ */
+async function resolveAcervoPipelineConfig(): Promise<{
+  flags: AcervoPipelineFlags
+  llmOverride: { provider?: string; model?: string; apiKey?: string } | null
+}> {
+  try {
+    // Como eh onCall, nao posso chamar diretamente. Vou ler o doc
+    const db = getFirestore()
+    const snap = await db.doc('admin-config/acervo-pipeline').get()
+    if (!snap.exists) {
+      return { flags: {}, llmOverride: null }
+    }
+    const data = snap.data() as any
+    const config = data.data || data  // envelope ou legacy
+    return {
+      flags: {
+        enableClassifier: config.enableClassifier !== false,
+        enableEmenta: config.enableEmenta !== false,
+        enableKeyPoints: config.enableKeyPoints !== false,
+      },
+      llmOverride: config.llmOverride || null,
+    }
+  } catch (err) {
+    logger.warn('resolveAcervoPipelineConfig failed, using defaults', { err: (err as Error).message })
+    return { flags: {}, llmOverride: null }
+  }
+}
+
+
+// Mutex in-memory para evitar re-analises concorrentes no mesmo docId
+// (race condition: 2 analises paralelas -> last write wins, pode perder dados)
+const analysisMutex = new Map<string, Promise<void>>()
+
 async function runAnalysisInBackground(input: {
   uid: string
   docId: string
@@ -498,18 +536,41 @@ async function runAnalysisInBackground(input: {
   text: string
   docRef: FirebaseFirestore.DocumentReference
 }): Promise<void> {
+  // Mutex: se ja tem analise rodando para este doc, espera ela terminar
+  const existing = analysisMutex.get(input.docId)
+  if (existing) {
+    logger.info('analyzeAcervoDoc: waiting for previous analysis', { docId: input.docId })
+    try { await existing } catch { /* ignora */ }
+  }
+  let resolveMutex!: () => void
+  const mutexPromise = new Promise<void>((resolve) => { resolveMutex = resolve })
+  analysisMutex.set(input.docId, mutexPromise)
+  // Uso intencional: resolveMutex eh atribuido no callback e chamado no finally
+  void resolveMutex  // referencia intencional para satisfazer TS strict
   try {
     // Marcar como processando
     await input.docRef.set(
       { status: 'analise_processando', analysisStartedAt: FieldValue.serverTimestamp() },
       { merge: true },
     )
-    // Carregar LLM config (admin global OU do user, com fallback)
-    const llmConfig = await resolveLLMConfigForAnalysis(input.uid)
+    // Carregar pipeline config (toggles + override de modelo)
+    const { flags, llmOverride } = await resolveAcervoPipelineConfig()
+    logger.info('acervo-pipeline: flags resolved', { docId: input.docId, flags, hasOverride: !!llmOverride })
+
+    // Resolver LLM config: override > admin global > env
+    let llmConfig = await resolveLLMConfigForAnalysis(input.uid)
+    if (llmOverride && llmOverride.provider && llmOverride.model && llmOverride.apiKey) {
+      logger.info('acervo-pipeline: usando llmOverride', { provider: llmOverride.provider, model: llmOverride.model })
+      llmConfig = {
+        provider: llmOverride.provider as any,
+        model: llmOverride.model,
+        apiKey: llmOverride.apiKey,
+      }
+    }
     if (!llmConfig) {
       logger.warn('analyzeAcervoDoc: sem LLM config disponivel', { docId: input.docId })
       await input.docRef.set(
-        { status: 'analise_pendente', analysisError: 'Nenhum LLM configurado (admin-config/llm ou geminiApiKey)', analysisCompletedAt: FieldValue.serverTimestamp() },
+        { status: 'analise_pendente', analysisError: 'Nenhum LLM configurado (admin-config/llm, llmOverride ou geminiApiKey)', analysisCompletedAt: FieldValue.serverTimestamp() },
         { merge: true },
       )
       return
@@ -517,11 +578,11 @@ async function runAnalysisInBackground(input: {
     logger.info('analyzeAcervoDoc: starting', { docId: input.docId, provider: llmConfig.provider, model: llmConfig.model })
     const result = await analyzeAcervoDoc({
       uid: input.uid,
-      
       docId: input.docId,
       fileName: input.fileName,
       text: input.text,
       llmConfig,
+      pipelineFlags: flags,
     })
     // Salvar resultado
     await input.docRef.set(

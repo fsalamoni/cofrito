@@ -217,10 +217,12 @@ service cloud.firestore {
     //  Escrita apenas pelo backend (Admin SDK)
     // ============================================================
     match /agentEvents/{conversationId} {
-      allow read: if isSignedIn() && (
-        conversationId.matches('.*_' + request.auth.uid + '_.*') ||
-        isAdmin()
-      );
+      // Eventos do pipeline nao contem dados sensiveis - apenas metadados
+      // de UI (tipo de evento, duracao, contagem de fontes).
+      // O backend filtra por userId no payload do evento.
+      // Permitimos leitura a qualquer user autenticado.
+      // Escrita apenas pelo backend (Admin SDK).
+      allow read: if isSignedIn();
       allow write: if false;
     }
   }

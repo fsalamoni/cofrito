@@ -210,3 +210,78 @@ describe('acervo-analyzer (agente unificado)', () => {
     })
   })
 })
+
+
+describe('acervo-analyzer com pipelineFlags', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('retorna classification null quando enableClassifier=false', async () => {
+    vi.mocked(generateWithProvider).mockResolvedValueOnce({
+      content: JSON.stringify({
+        classification: { natureza: 'consultivo', areaDireito: [], assuntos: [], tipoDocumento: 'Parecer', contexto: [] },
+        ementa: { tipo: 'Parecer', assunto: 'X', sintese: '', areas: [], topicos: [], conclusao: '', keywords: ['x'] },
+        key_points: { items: ['P1'], reusable_content: 'trecho' },
+      }),
+      tokens: { input: 100, output: 200, total: 300 },
+    })
+    const result = await analyzeAcervoDoc({
+      ...mockInput,
+      pipelineFlags: { enableClassifier: false },
+    })
+    expect(result.classification).toBeNull()
+    // Outros agentes ainda rodam
+    expect(result.ementa).not.toBeNull()
+    expect(result.keyPoints.items).toHaveLength(1)
+  })
+
+  it('retorna ementa null quando enableEmenta=false', async () => {
+    vi.mocked(generateWithProvider).mockResolvedValueOnce({
+      content: JSON.stringify({
+        classification: { natureza: 'consultivo', areaDireito: [], assuntos: [], tipoDocumento: '', contexto: [] },
+        ementa: { tipo: 'Parecer', assunto: 'X', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] },
+        key_points: { items: [], reusable_content: '' },
+      }),
+      tokens: { input: 100, output: 200, total: 300 },
+    })
+    const result = await analyzeAcervoDoc({
+      ...mockInput,
+      pipelineFlags: { enableEmenta: false },
+    })
+    expect(result.ementa).toBeNull()
+    expect(result.classification).not.toBeNull()
+  })
+
+  it('retorna keyPoints vazio quando enableKeyPoints=false', async () => {
+    vi.mocked(generateWithProvider).mockResolvedValueOnce({
+      content: JSON.stringify({
+        classification: { natureza: 'consultivo', areaDireito: [], assuntos: [], tipo_documento: '', contexto: [] },
+        ementa: { tipo: '', assunto: '', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] },
+        key_points: { items: ['P1'], reusable_content: 't' },
+      }),
+      tokens: { input: 100, output: 200, total: 300 },
+    })
+    const result = await analyzeAcervoDoc({
+      ...mockInput,
+      pipelineFlags: { enableKeyPoints: false },
+    })
+    expect(result.keyPoints.items).toEqual([])
+    expect(result.keyPoints.reusableContent).toBe('')
+  })
+
+  it('funciona normalmente sem pipelineFlags (default tudo ON)', async () => {
+    vi.mocked(generateWithProvider).mockResolvedValueOnce({
+      content: JSON.stringify({
+        classification: { natureza: 'consultivo', area_direito: [], assuntos: [], tipo_documento: '', contexto: [] },
+        ementa: { tipo: '', assunto: '', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] },
+        key_points: { items: ['P1'], reusable_content: '' },
+      }),
+      tokens: { input: 100, output: 200, total: 300 },
+    })
+    const result = await analyzeAcervoDoc(mockInput)
+    expect(result.classification).not.toBeNull()
+    expect(result.ementa).not.toBeNull()
+    expect(result.keyPoints.items).toHaveLength(1)
+  })
+})

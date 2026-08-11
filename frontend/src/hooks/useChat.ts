@@ -44,7 +44,6 @@ export function useChat() {
       }
       addMessage(userMessage)
       setThinking(true)
-      setLivePipelineMessageId(null)
 
       try {
         // 2. Chama Cloud Function

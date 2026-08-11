@@ -40,10 +40,16 @@ export interface ResearcherInternalInput {
    * Se nao fornecido, nao faz camada 3 (LLM).
    */
   llmConfig?: LLMConfigLike
+  /**
+   * Config do pipeline de pesquisa (Fase 2c/2e).
+   * - enableLlmRerank: se false, pula Camada 3 (default: true)
+   * - rerankAmbiguityThreshold: limiar de ambiguidade (default: 0.15)
+   */
+  pipelineConfig?: { enableLlmRerank?: boolean; rerankAmbiguityThreshold?: number }
 }
 
 const SNIPPET_RADIUS = 800 // chars ao redor do termo casado
-const AMBIGUITY_THRESHOLD = 0.15  // se a diferenca entre #1 e #K for menor que isso, pede ajuda do LLM
+const DEFAULT_AMBIGUITY_THRESHOLD = 0.15  // overridable via pipelineConfig.rerankAmbiguityThreshold
 const TOP_K_FOR_LLM = 10  // numero de candidatos que vao pro LLM unificado
 
 /**
@@ -57,7 +63,7 @@ export async function runResearcherInternal(input: ResearcherInternalInput): Pro
 
   for (const point of points) {
     try {
-      const sources = await searchCorpusForPoint(point, config, llmConfig, logger)
+      const sources = await searchCorpusForPoint(point, config, llmConfig, input.pipelineConfig, logger)
       all.push(...sources)
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? String(err)
@@ -93,6 +99,7 @@ async function searchCorpusForPoint(
   point: ResearchPoint,
   config: ResearchConfig,
   llmConfig: LLMConfigLike | undefined,
+  pipelineConfig: { enableLlmRerank?: boolean; rerankAmbiguityThreshold?: number } | undefined,
   log: { info: (m: string, x?: unknown) => void; warn: (m: string, x?: unknown) => void },
 ): Promise<SourceRef[]> {
   const db = getFirestore()
@@ -200,11 +207,13 @@ async function searchCorpusForPoint(
   // ════════════════════════════════════════════════════════════════════
   // Se o LLM esta disponivel E ha ambiguidade nos top-K, usa 1 chamada
   // para re-ranquear com base no contexto semantico real
+  const enableLlmRerank = pipelineConfig?.enableLlmRerank !== false
+  const ambiguityThreshold = pipelineConfig?.rerankAmbiguityThreshold ?? DEFAULT_AMBIGUITY_THRESHOLD
   let finalScores: Map<string, number> = new Map()
-  if (llmConfig && topCandidates.length > 1) {
+  if (enableLlmRerank && llmConfig && topCandidates.length > 1) {
     const top1 = topCandidates[0].combinedScore
     const topK = topCandidates[Math.min(TOP_K_FOR_LLM - 1, topCandidates.length - 1)].combinedScore
-    const isAmbiguous = (top1 - topK) < AMBIGUITY_THRESHOLD
+    const isAmbiguous = (top1 - topK) < ambiguityThreshold
     if (isAmbiguous) {
       try {
         finalScores = await unifiedRerankWithLLM({

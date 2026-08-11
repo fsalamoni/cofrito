@@ -56,10 +56,27 @@ export function OrchestratorTimeline({ conversationId, pipelineMessageId, isActi
     }
     setIsListening(true)
     // Ouve eventos do Firestore em tempo real
-    const q = query(
-      collection(db, `agentEvents/${conversationId}`),
-      orderBy('ts', 'asc'),
-    )
+    // IMPORTANTE: tambem faz getDocs() inicial para pegar eventos ja persistidos
+    // (o pipeline pode ser mais rapido que o listener se inscrever)
+    const colRef = collection(db, `agentEvents/${conversationId}`)
+    const q = query(colRef, orderBy('ts', 'asc'))
+    let cancelled = false  // evita race condition quando o user troca de conversa rapido
+    // Query inicial
+    const fetchInitial = async () => {
+      try {
+        const { getDocs } = await import('firebase/firestore')
+        const snap = await getDocs(q)
+        if (cancelled) return  // ignora se o effect foi limpo
+        const initial = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as NarrativeEvent))
+          .filter((e) => e.messageId === pipelineMessageId)
+        setEvents(initial)
+      } catch (err) {
+        if (!cancelled) console.warn('Erro ao buscar eventos iniciais:', err)
+      }
+    }
+    void fetchInitial()
+    // Listener em tempo real
     const unsubscribe = onSnapshot(q, (snap) => {
       const filtered = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as NarrativeEvent))
@@ -69,7 +86,7 @@ export function OrchestratorTimeline({ conversationId, pipelineMessageId, isActi
       console.warn('Erro ao ouvir agentEvents:', err)
       setIsListening(false)
     })
-    return () => unsubscribe()
+    return () => { cancelled = true; unsubscribe() }
   }, [conversationId, pipelineMessageId, isActive])
 
   if (!isActive) return null

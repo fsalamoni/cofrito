@@ -7,7 +7,7 @@ import './styles/index.css'
 // Resolve o problema de "deploy passou mas o navegador mostra bundle velho"
 async function nukeOldCaches() {
   if (typeof window === 'undefined') return
-  const SW_VERSION = 'v13' // bump a cada release crítica
+  const SW_VERSION = 'v14' // bump a cada release crítica
 
   try {
     if ('serviceWorker' in navigator) {

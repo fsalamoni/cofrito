@@ -237,7 +237,7 @@ export function DocumentCatalog() {
   async function reanalyzeDoc(docId: string) {
     try {
       await api.adminReanalyzeDocument(docId)
-      alert('Re-analise iniciada. A pagina sera recarregada em 3s para mostrar o status atualizado.')
+      alert('Re-analise iniciada em background. A lista sera atualizada em 3s.')
       setTimeout(() => {
         void loadDocs()
         if (selected?.id === docId) void openViewer(docs.find(d => d.id === docId)!)

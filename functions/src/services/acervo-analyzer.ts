@@ -42,6 +42,12 @@ export interface KeyPoints {
   reusableContent: string
 }
 
+export interface AcervoPipelineFlags {
+  enableClassifier?: boolean
+  enableEmenta?: boolean
+  enableKeyPoints?: boolean
+}
+
 export interface AcervoAnalyzerInput {
   uid: string
   docId: string
@@ -49,11 +55,13 @@ export interface AcervoAnalyzerInput {
   text: string
   /** LLM config JÁ CARREGADO (do configToUse global) */
   llmConfig: LLMConfigLike
+  /** Toggles do pipeline (opcional, default: tudo ON) */
+  pipelineFlags?: AcervoPipelineFlags
 }
 
 export interface AcervoAnalysisResult {
-  classification: Classification
-  ementa: Ementa
+  classification: Classification | null
+  ementa: Ementa | null
   keyPoints: KeyPoints
   /** Latencia total (incluindo retry se houver) */
   totalLatencyMs: number
@@ -142,6 +150,41 @@ const UNIFIED_SYSTEM_PROMPT = [
   'cobrir os assuntos, etc).',
 ].join('\n')
 
+
+
+/**
+ * Constroi o prompt do sistema condicionalmente baseado nos toggles.
+ * Se um agente esta desativado, seu output eh null (mas o LLM ainda roda 1 unica chamada).
+ */
+function buildSystemPrompt(flags?: AcervoPipelineFlags): string {
+  const enableClassifier = flags?.enableClassifier !== false
+  const enableEmenta = flags?.enableEmenta !== false
+  const enableKeyPoints = flags?.enableKeyPoints !== false
+  const skills: string[] = []
+  if (enableClassifier) skills.push('classification')
+  if (enableEmenta) skills.push('ementa')
+  if (enableKeyPoints) skills.push('key_points')
+  if (skills.length === 0) {
+    // Edge case: tudo desativado. Nao roda LLM.
+    return 'Todos os agentes estao desativados. Responda com JSON vazio: {}'
+  }
+  // Substitui os titulos das secoes no UNIFIED_SYSTEM_PROMPT
+  let prompt = UNIFIED_SYSTEM_PROMPT
+  if (!enableClassifier) {
+    prompt = prompt.replace(/═══════════════════════════════════════════════════════════════════\nSKILL 1: CLASSIFICAÇÃO[\s\S]*?(?=═══════════════════════════════════════════════════════════════════)/,
+                            '═══════════════════════════════════════════════════════════════════\nSKILL 1: CLASSIFICAÇÃO [DESATIVADA]\n(classification deve ser null)\n')
+  }
+  if (!enableEmenta) {
+    prompt = prompt.replace(/═══════════════════════════════════════════════════════════════════\nSKILL 2: EMENTA[\s\S]*?(?=═══════════════════════════════════════════════════════════════════)/,
+                            '═══════════════════════════════════════════════════════════════════\nSKILL 2: EMENTA [DESATIVADA]\n(ementa deve ser null)\n')
+  }
+  if (!enableKeyPoints) {
+    prompt = prompt.replace(/═══════════════════════════════════════════════════════════════════\nSKILL 3: PONTOS RELEVANTES[\s\S]*?(?=═══════════════════════════════════════════════════════════════════)/,
+                            '═══════════════════════════════════════════════════════════════════\nSKILL 3: PONTOS RELEVANTES [DESATIVADA]\n(key_points deve ser null)\n')
+  }
+  return prompt
+}
+
 // ── Funcao principal (orquestra 1 chamada) ─────────────────────────────
 
 /**
@@ -164,7 +207,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
   let result: { content: string; tokens: { input: number; output: number; total: number } }
   try {
     result = await generateWithProvider({
-      systemPrompt: UNIFIED_SYSTEM_PROMPT,
+      systemPrompt: buildSystemPrompt(input.pipelineFlags),
       messages: [{ role: 'user', content: userPrompt }],
       // maxTokens generoso: cobre 3 outputs estruturados
       config: { ...input.llmConfig, maxTokens: 2000, temperature: 0.1 },
@@ -193,10 +236,13 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
     }
   }
 
-  // 4. Normalizar cada skill
-  const classification = normalizeClassification(parsed.value.classification)
-  const ementa = normalizeEmenta(parsed.value.ementa, input.fileName)
-  const keyPoints = normalizeKeyPoints(parsed.value.key_points)
+  // 4. Normalizar cada skill (respeitando os toggles)
+  const enableClassifier = input.pipelineFlags?.enableClassifier !== false
+  const enableEmenta = input.pipelineFlags?.enableEmenta !== false
+  const enableKeyPoints = input.pipelineFlags?.enableKeyPoints !== false
+  const classification = enableClassifier ? normalizeClassification(parsed.value.classification) : null
+  const ementa = enableEmenta ? normalizeEmenta(parsed.value.ementa, input.fileName) : null
+  const keyPoints = enableKeyPoints ? normalizeKeyPoints(parsed.value.key_points) : { items: [], reusableContent: '' }
 
   const totalLatencyMs = Date.now() - start
   logger.info('acervo-analyzer.done', {

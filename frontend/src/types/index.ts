@@ -54,6 +54,8 @@ export interface ChatMessage {
 
   /** ID do messageId "live" para ouvir eventos do orquestrador em tempo real (Fase 2f) */
   pipelineMessageId?: string
+  /** Mensagem de erro se o pipeline falhou */
+  pipelineError?: string
   createdAt: string
 }
 
