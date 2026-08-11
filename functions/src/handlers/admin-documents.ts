@@ -12,6 +12,8 @@
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getFirestore, FieldValue } from '../services/firestore'
+import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
+import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from 'firebase-admin/storage'
 import { assertAdminMaster } from '../middleware/auth'
@@ -89,59 +91,143 @@ export const adminUploadDocument = onCall(
       { merge: true },
     )
 
-    // Ingestão inline (extrai texto, chunk, embed, persiste em corpus/{docId})
+    // ===== NOVO FLUXO V1 (Fase 2a): compactar + JSON estruturado =====
+    // 1. Compactar original se faz sentido (txt, md, html, json, csv, etc)
+    const { buffer: storedBuffer, encoded } = compressBuffer(
+      buffer,
+      mimeType || 'application/octet-stream',
+      safeName,
+    )
+    const compressionGain = encoded ? estimateCompressionGain(buffer, storedBuffer) : 0
+    const uploadContentType = encoded
+      ? 'application/gzip'  // marca como gzip no Storage
+      : (mimeType || 'application/octet-stream')
+
+    // Upload com metadata indicando encoding
+    await file.save(storedBuffer, {
+      contentType: uploadContentType,
+      metadata: {
+        metadata: {
+          uploadedBy: request.auth.uid,
+          uploadedAt: new Date().toISOString(),
+          originalName: fileName,
+          originalSize: String(buffer.length),
+          compressed: String(encoded),
+          compressionGain: String(compressionGain),
+        },
+      },
+    })
+
+    // 2. Extrair texto
+    let text = ''
+    let pageCount: number | undefined
+    try {
+      const extraction = await extractTextWithMetadata(buffer, mimeType || 'application/octet-stream', fileName)
+      text = extraction.text
+      pageCount = extraction.pageCount
+    } catch (err) {
+      console.warn(`Extract text falhou para ${fileName}:`, (err as Error).message)
+    }
+
+    if (!text || text.length < 10) {
+      // Texto vazio ou muito curto
+      await docRef.set(
+        {
+          status: 'arquivo_nao_suportado',
+          textContent: '',
+          textOriginal: '',
+          ingestError: 'Texto vazio ou muito curto após extração',
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      )
+      return {
+        ok: false,
+        docId,
+        path,
+        message: 'Documento salvo, mas texto nao pode ser extraido (formato nao suportado).',
+      }
+    }
+
+    // 3. Converter para JSON estruturado v1
+    const structured = textToStructuredJson(text, fileName, pageCount)
+    const textContentJson = serializeStructuredJson(structured)
+
+    // 4. Persistir textContent (JSON) + textOriginal (texto)
+    const finalStatus = 'analise_pendente'  // analise vem na Fase 2b
+    await docRef.set(
+      {
+        textContent: textContentJson,
+        textOriginal: text.slice(0, 900_000),  // cap 900k chars
+        storageFormat: 'json-v1',
+        meta: {
+          format: structured.meta.format,
+          pages: structured.meta.pages,
+          paragraphs: structured.meta.paragraphs,
+          charsOriginal: structured.meta.charsOriginal,
+          charsStored: structured.meta.charsStored,
+          compressionRatio: structured.meta.compressionRatio,
+        },
+        originalSize: buffer.length,
+        compressedSize: storedBuffer.length,
+        compressionGain,
+        status: finalStatus,
+        classification: null,
+        ementa: null,
+        keyPoints: null,
+        analyzedAt: null,
+        analysisVersion: 0,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    )
+
+    // 5. LEGACY: ainda permite ingest via embed (configurável)
     let ingestResult: { ok: boolean; chunksCreated: number; error?: string } = { ok: false, chunksCreated: 0, error: 'skipped' }
     if (autoIngest !== false) {
       try {
-        const text = await extractText(buffer, mimeType || 'application/octet-stream', fileName)
-        if (text && text.length > 10) {
-          const apiKey = process.env.GEMINI_API_KEY || ''
-          const result = await ingestInline({
-            docId,
-            text,
-            title: inferTitle,
-            type: inferredType,
-            area: area ?? ['geral'],
-            tags: tags ?? [],
-            source: 'admin-upload',
-            url: `gs://${bucket.name}/${path}`,
-            storagePath: path,
-            apiKey,
-          })
-          ingestResult = { ok: result.ok, chunksCreated: result.chunksCreated, error: result.error }
-          await docRef.set(
-            {
-              status: result.ok ? 'ativo' : 'erro_ingestao',
-              chunksCount: result.chunksCreated,
-              ingestedAt: FieldValue.serverTimestamp(),
-              ingestError: result.error || null,
-            },
-            { merge: true },
-          )
-        } else {
-          await docRef.set(
-            { status: 'arquivo_nao_suportado', ingestError: 'Texto vazio após extração' },
-            { merge: true },
-          )
-        }
-      } catch (err: any) {
+        const apiKey = process.env.GEMINI_API_KEY || ''
+        const result = await ingestInline({
+          docId,
+          text: text,
+          title: inferTitle,
+          type: inferredType,
+          area: area ?? ['geral'],
+          tags: tags ?? [],
+          source: 'admin-upload',
+          url: `gs://${bucket.name}/${path}`,
+          storagePath: path,
+          apiKey,
+        })
+        ingestResult = { ok: result.ok, chunksCreated: result.chunksCreated, error: result.error }
         await docRef.set(
-          { status: 'erro_ingestao', ingestError: err?.message || String(err) },
+          {
+            status: result.ok ? finalStatus : 'erro_ingestao',
+            chunksCount: result.chunksCreated,
+            ingestError: result.error || null,
+          },
           { merge: true },
         )
-        ingestResult = { ok: false, chunksCreated: 0, error: err?.message }
+      } catch (err) {
+        console.warn('ingestInline falhou (continuando):', (err as Error).message)
+        ingestResult = { ok: false, chunksCreated: 0, error: (err as Error).message }
       }
     }
+
+    // 6. TODO Fase 2b: disparar analyzeAcervoDoc() em background
+    // (classificador + ementa + pontos relevantes via LLM)
 
     return {
       ok: true,
       docId,
       path,
+      compressed: encoded,
+      compressionGain: Math.round(compressionGain * 100) + '%',
+      format: structured.meta.format,
+      paragraphs: structured.meta.paragraphs,
+      compressionRatio: structured.meta.compressionRatio,
       chunksCreated: ingestResult.chunksCreated,
-      ingested: ingestResult.ok,
-      message: ingestResult.ok
-        ? `Documento salvo e indexado (${ingestResult.chunksCreated} chunks).`
-        : `Documento salvo, mas ingestão falhou: ${ingestResult.error || 'desconhecido'}`,
+      message: `Documento salvo e estruturado em JSON v1 (${structured.meta.paragraphs} paragrafos, ${Math.round(structured.meta.compressionRatio * 100)}% compressao). Análise automatica sera iniciada na Fase 2b.`,
     }
   },
 )
@@ -291,6 +377,25 @@ export const adminSyncSourcePath = onCall(
  * Extrai texto de um buffer conforme mimeType/extensão.
  * Suporta: txt, md, html, pdf, docx.
  */
+async function extractTextWithMetadata(
+  buffer: Buffer,
+  mimeType: string,
+  fileName: string,
+): Promise<{ text: string; pageCount?: number }> {
+  const result = await extractText(buffer, mimeType, fileName)
+  // Tentar extrair pageCount de PDFs
+  if (fileName.toLowerCase().endsWith('.pdf') || mimeType === 'application/pdf') {
+    try {
+      const pdfParse = (await import('pdf-parse')).default
+      const parsed = await pdfParse(buffer)
+      return { text: result, pageCount: parsed.numpages }
+    } catch {
+      // ignore
+    }
+  }
+  return { text: result }
+}
+
 async function extractText(buffer: Buffer, mimeType: string, fileName: string): Promise<string> {
   const ext = (fileName.split('.').pop() || '').toLowerCase()
   const isText =
