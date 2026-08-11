@@ -211,9 +211,17 @@ service cloud.firestore {
     }
 
     // ============================================================
-    //  Negação default: qualquer path não especificada = DENY
+    //  Agent Events (Fase 2f - chat orquestrador visivel)
+    //  Eventos em tempo real do pipeline multi-agente
+    //  O user le apenas eventos da sua conversation
+    //  Escrita apenas pelo backend (Admin SDK)
     // ============================================================
-    // Regras de Firestore têm deny-by-default. Paths fora desta lista
-    // são inacessíveis.
+    match /agentEvents/{conversationId} {
+      allow read: if isSignedIn() && (
+        conversationId.matches('.*_' + request.auth.uid + '_.*') ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
   }
 }
