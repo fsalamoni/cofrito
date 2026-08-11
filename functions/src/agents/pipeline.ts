@@ -121,6 +121,7 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
         points: plan.points,
         config: { ...researchConfig, maxTotalSources: preset.maxTotalSources, maxSourcesPerPoint: preset.maxSourcesPerPoint },
         logger,
+        llmConfig,
       })
       return { sources, output: { count: sources.length } }
     }, logger)

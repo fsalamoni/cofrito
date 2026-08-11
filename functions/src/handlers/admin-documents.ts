@@ -20,6 +20,7 @@ import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from 'firebase-admin/storage'
 import { assertAdminMaster } from '../middleware/auth'
 import { ingestInline } from '../services/ingestion-buffer'
+import { ingestAcervoDoc } from '../services/ingestion-acervo'
 
 // ── Upload de documento ─────────────────────────────────────────────────
 
@@ -508,6 +509,28 @@ async function runAnalysisInBackground(input: {
       },
       { merge: true },
     )
+    // Fase 2c: re-indexar no corpus com metadados estruturados
+    // (pre-filtro por keywords pro researcher-internal)
+    try {
+      const geminiKey = process.env.GEMINI_API_KEY || ''
+      const reindex = await ingestAcervoDoc({
+        docId: input.docId,
+        text: input.text,
+        title: input.fileName.replace(/\.\w+\$/, ''),
+        fileName: input.fileName,
+        type: 'acervo',
+        area: [],
+        tags: [],
+        classification: result.classification,
+        ementa: result.ementa,
+        keyPoints: result.keyPoints,
+        apiKey: geminiKey,
+        replace: true,
+      })
+      logger.info('acervo.reindexed', { docId: input.docId, chunks: reindex.chunksCreated, keywords: reindex.searchKeywords.length })
+    } catch (reidxErr) {
+      logger.warn('acervo.reindexFailed', { docId: input.docId, err: (reidxErr as Error).message })
+    }
     logger.info('analyzeAcervoDoc: done', { docId: input.docId, latencyMs: result.totalLatencyMs })
   } catch (err) {
     logger.error('analyzeAcervoDoc: failed', { docId: input.docId, err: (err as Error).message })
