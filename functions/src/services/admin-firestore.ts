@@ -6,8 +6,8 @@
  * default exista antes de chamar getFirestore()/getAuth().
  */
 import { getApps, initializeApp, applicationDefault } from 'firebase-admin/app'
-import { getFirestore, type Firestore } from './firestore'
-import { getAuth, type Auth } from 'firebase-admin/auth'
+import { getFirestore as adminGetFirestore, type Firestore } from 'firebase-admin/firestore'
+import { getAuth as adminGetAuth, type Auth } from 'firebase-admin/auth'
 
 let _initialized = false
 
@@ -28,10 +28,10 @@ function ensureAdminApp(): void {
 
 export function getDb(): Firestore {
   ensureAdminApp()
-  return getFirestore()
+  return adminGetFirestore()
 }
 
 export function getAuthInstance(): Auth {
   ensureAdminApp()
-  return getAuth()
+  return adminGetAuth()
 }
