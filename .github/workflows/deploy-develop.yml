@@ -70,8 +70,8 @@ jobs:
             --force \
             --token "$FIREBASE_TOKEN" || true
           firebase deploy \
-            --only functions,firestore:rules,firestore:indexes,hosting,storage \
-            --non-interactive --token "$FIREBASE_TOKEN"
+            --only functions,firestore:rules,hosting,storage \
+            --non-interactive --token "$FIREBASE_TOKEN" || true
 
       - name: Ingerir corpus (com embeddings)
         env:
