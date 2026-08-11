@@ -53,11 +53,20 @@ export const chatV2 = onCall(
       // 1. Anonimiza
       const sanitizedText = filterPII(message).text
 
-      // 2. Histórico
-      const recentHistory = await getRecentHistory(userId, conversationId || undefined, 6); logger.debug("history.size", { size: recentHistory.length })
+      // 2. Histórico (try/catch — sem histórico, segue sem)
+      try {
+        await getRecentHistory(userId, conversationId || undefined, 6)
+      } catch (histErr) {
+        logger.warn('getRecentHistory falhou (continuando sem histórico)', { err: (histErr as Error)?.message })
+      }
 
-      // 3. Retrieval
-      const chunks = await retrieveRelevantChunks(sanitizedText, { topK: 8, minSimilarity: 0.55 })
+      // 3. Retrieval (try/catch — sem chunks, segue sem)
+      let chunks: Awaited<ReturnType<typeof retrieveRelevantChunks>> = []
+      try {
+        chunks = await retrieveRelevantChunks(sanitizedText, { topK: 8, minSimilarity: 0.55 })
+      } catch (retErr) {
+        logger.warn('retrieveRelevantChunks falhou (continuando sem retrieval)', { err: (retErr as Error)?.message })
+      }
 
       // 4. Guardrail
       const scopeCheck = checkScopeGuardrail(sanitizedText, chunks)
@@ -137,22 +146,23 @@ export const chatV2 = onCall(
         hasCorpusChunks: chunks.length > 0,
       })
 
-      // 8. Carregar configs de pesquisa (research, web-search, intranet)
-      const [researchSnap, webSearchSnap, intranetSnap] = await Promise.all([
-        db.doc('admin-config/research').get(),
-        db.doc('admin-config/web-search').get(),
-        db.doc('admin-config/intranet').get(),
-      ])
+      // 8. Carregar configs de pesquisa (try/catch — usa defaults se Firestore falhar)
       const typesMod = await import('../agents/types')
-      const researchConfig: import('../agents/types').ResearchConfig = researchSnap.exists
-        ? { ...typesMod.DEFAULT_RESEARCH_CONFIG, ...researchSnap.data() }
-        : typesMod.DEFAULT_RESEARCH_CONFIG
-      const webSearchConfig: import('../agents/types').WebSearchConfig = webSearchSnap.exists
-        ? { ...typesMod.DEFAULT_WEB_SEARCH_CONFIG, ...webSearchSnap.data() }
-        : typesMod.DEFAULT_WEB_SEARCH_CONFIG
-      const intranetConfig: import('../agents/types').IntranetConfig = intranetSnap.exists
-        ? { ...typesMod.DEFAULT_INTRANET_CONFIG, ...intranetSnap.data() }
-        : typesMod.DEFAULT_INTRANET_CONFIG
+      let researchConfig: import('../agents/types').ResearchConfig = typesMod.DEFAULT_RESEARCH_CONFIG
+      let webSearchConfig: import('../agents/types').WebSearchConfig = typesMod.DEFAULT_WEB_SEARCH_CONFIG
+      let intranetConfig: import('../agents/types').IntranetConfig = typesMod.DEFAULT_INTRANET_CONFIG
+      try {
+        const [researchSnap, webSearchSnap, intranetSnap] = await Promise.all([
+          db.doc('admin-config/research').get(),
+          db.doc('admin-config/web-search').get(),
+          db.doc('admin-config/intranet').get(),
+        ])
+        if (researchSnap.exists) researchConfig = { ...typesMod.DEFAULT_RESEARCH_CONFIG, ...researchSnap.data() }
+        if (webSearchSnap.exists) webSearchConfig = { ...typesMod.DEFAULT_WEB_SEARCH_CONFIG, ...webSearchSnap.data() }
+        if (intranetSnap.exists) intranetConfig = { ...typesMod.DEFAULT_INTRANET_CONFIG, ...intranetSnap.data() }
+      } catch (cfgErr) {
+        logger.warn('loadAdminConfigs falhou (usando defaults)', { err: (cfgErr as Error)?.message })
+      }
 
       // 9. Detectar se user pediu análise jurídica (toggle manual OU lexical)
       const requiresLegalWriting = requestLegalAnalysis || /\b(analis[ae]r?|analise|opinar?|elabor[ae]r?|redij[ae]r?|fundament[ae]r?|parecer[ ]?jur[íi]dico)\b/i.test(message)
@@ -260,8 +270,10 @@ export const chatV2 = onCall(
         criticScore,
       }
     } catch (err: any) {
-      logger.error('chat.error', { userId, err: err?.message ?? err })
-      throw new HttpsError('internal', 'Erro ao processar sua mensagem. Tente novamente.')
+      const msg = err?.message ?? String(err)
+      logger.error('chat.error', { userId, err: msg, stack: err?.stack?.substring(0, 500) })
+      // Temporariamente retorna o erro real para debug
+      throw new HttpsError('internal', `Erro: ${msg}`)
     }
   },
 )
