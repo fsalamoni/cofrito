@@ -228,8 +228,8 @@ export function WebSearchConfig() {
     return <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Carregando…</div>
   }
 
-  const currentProvider = PROVIDERS.find((p) => p.id === config.provider)!
-  const supportsKey = currentProvider.needsKey
+  const currentProvider = PROVIDERS.find((p) => p.id === config.provider) || PROVIDERS.find((p) => p.id === 'datajud') || PROVIDERS[0]
+  const supportsKey = currentProvider?.needsKey ?? false
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 800 }}>
