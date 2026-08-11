@@ -297,6 +297,38 @@ export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   datajudTribunals: ['stj', 'trf4', 'tjrs'],
 }
 
+// ── Deep Search (pesquisa web profunda via LLM) ────────────────────────────
+
+/**
+ * Configuração da skill de "deep search" — pesquisa web profunda com raciocínio.
+ *
+ * Se useGlobalModel=true e houver LLM global configurado, o orquestrador
+ * reusa o mesmo modelo já carregado (sem novo load de API).
+ * Se useGlobalModel=false, usa o model/apiKey dedicados.
+ */
+export interface DeepSearchConfig {
+  enabled: boolean                              // skill habilitada
+  useGlobalModel: boolean                       // usar LLM global carregado
+  provider?: 'openrouter' | 'google' | 'openai' | 'anthropic' | 'deepseek' | 'perplexity' | 'custom'  // se nao global
+  model?: string                                // modelo dedicado
+  apiKey?: string                               // chave do provedor
+  maxTokens?: number                            // default 2000
+  temperature?: number                          // default 0.3
+  maxSearchQueries?: number                     // quantas buscas a skill faz (default 3)
+  restrictToBR?: boolean                        // default true
+  recencyDays?: number                          // default 365
+}
+
+export const DEFAULT_DEEP_SEARCH_CONFIG: DeepSearchConfig = {
+  enabled: false,
+  useGlobalModel: true,                         // default: usa LLM global
+  maxTokens: 2000,
+  temperature: 0.3,
+  maxSearchQueries: 3,
+  restrictToBR: true,
+  recencyDays: 365,
+}
+
 export interface IntranetConfig {
   enabled: boolean
   baseUrl: string                   // ex: 'https://intranet.mp.rs.gov.br'

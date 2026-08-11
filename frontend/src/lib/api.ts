@@ -95,6 +95,12 @@ export const api = {
   testWebSearch: (data?: { query?: string }) =>
     httpsCallable<{ query?: string }, any>(functions, 'testWebSearch')(data || {}),
 
+  // Deep search
+  getDeepSearchConfig: () => httpsCallable<void, any>(functions, 'getDeepSearchConfig')(),
+  saveDeepSearchConfig: (config: any) =>
+    httpsCallable<any, { ok: boolean; savedAt: string }>(functions, 'saveDeepSearchConfig')(config),
+  testDeepSearch: () => httpsCallable<void, any>(functions, 'testDeepSearch')(),
+
   getIntranetConfig: () => httpsCallable<void, any>(functions, 'getIntranetConfig')(),
   saveIntranetConfig: (config: any) =>
     httpsCallable<any, { ok: boolean; savedAt: string }>(functions, 'saveIntranetConfig')(config),

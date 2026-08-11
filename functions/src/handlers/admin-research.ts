@@ -22,9 +22,11 @@ import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import {
   DEFAULT_RESEARCH_CONFIG,
   DEFAULT_INTRANET_CONFIG,
+
   type ResearchConfig,
   type WebSearchConfig,
   type IntranetConfig,
+  type DeepSearchConfig,
 } from '../agents/types'
 
 function getDb() {
@@ -275,6 +277,69 @@ export const testIntranet = onCall({ cors: true, enforceAppCheck: false }, async
   }
 })
 
+
+// ── Deep Search (pesquisa web profunda via LLM) ───────────────────────────
+
+export const getDeepSearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<DeepSearchConfig | null> => {
+  requireAdminMaster(req.auth?.uid)
+  if (!(await isAdminMaster(req.auth!.uid))) {
+    throw new HttpsError('permission-denied', 'Apenas admin master')
+  }
+  const loaded = await loadConfigDoc<DeepSearchConfig>('admin-config/deep-search', 'deep-search')
+  if (!loaded) return null
+  // Mascarar apiKey
+  const data = loaded.data
+  return {
+    ...data,
+    apiKey: data.apiKey ? '••••••' : undefined,
+    _hasApiKey: !!data.apiKey,
+  } as any
+})
+
+export const saveDeepSearchConfig = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: true; savedAt: string }> => {
+  requireAdminMaster(req.auth?.uid)
+  if (!(await isAdminMaster(req.auth!.uid))) {
+    throw new HttpsError('permission-denied', 'Apenas admin master')
+  }
+  const cfg = req.data as DeepSearchConfig
+  if (!cfg || typeof cfg !== 'object') {
+    throw new HttpsError('invalid-argument', 'Config inválida')
+  }
+  // Preservar apiKey se vier mascarada
+  let finalApiKey = cfg.apiKey
+  if (cfg.apiKey === '••••••' || !cfg.apiKey) {
+    const loaded = await loadConfigDoc<DeepSearchConfig>('admin-config/deep-search', 'deep-search')
+    if (loaded) {
+      finalApiKey = loaded.data.apiKey ?? ''
+    } else {
+      finalApiKey = ''
+    }
+  }
+  const cfgWithKey = { ...cfg, apiKey: finalApiKey }
+  const result = await saveConfigDoc(cfgWithKey, {
+    uid: req.auth!.uid,
+    path: 'admin-config/deep-search',
+    tag: 'deep-search',
+  })
+  return { ok: true, savedAt: result.savedAt }
+})
+
+export const testDeepSearch = onCall({ cors: true, enforceAppCheck: false }, async (req): Promise<{ ok: boolean; latencyMs: number; provider?: string; model?: string; error?: string; sample?: unknown }> => {
+  requireAdminMaster(req.auth?.uid)
+  if (!(await isAdminMaster(req.auth!.uid))) {
+    throw new HttpsError('permission-denied', 'Apenas admin master')
+  }
+  const loaded = await loadConfigDoc<DeepSearchConfig>('admin-config/deep-search', 'deep-search')
+  if (!loaded) {
+    return { ok: false, latencyMs: 0, error: 'Deep search não configurado' }
+  }
+  if (!loaded.data.enabled) {
+    return { ok: false, latencyMs: 0, error: 'Deep search desabilitado' }
+  }
+  // Implementação completa virá na Fase 2c
+  return { ok: true, latencyMs: 0, provider: loaded.data.provider, model: loaded.data.model, error: 'Teste completo na Fase 2c' }
+})
+
 /**
  * Endpoint público (status only) — para o chat saber se há config ativa.
  */
@@ -282,16 +347,18 @@ export const getPublicResearchStatus = onRequest({ cors: true }, async (_req: Re
   res.set('Access-Control-Allow-Origin', '*')
   try {
     // loadConfigDoc trata tanto docs novos (com envelope) quanto legacy
-    const [researchLoaded, webLoaded, intranetLoaded] = await Promise.all([
+    const [researchLoaded, webLoaded, intranetLoaded, deepSearchLoaded] = await Promise.all([
       loadConfigDoc<ResearchConfig>('admin-config/research', 'research'),
       loadConfigDoc<WebSearchConfig>('admin-config/web-search', 'web-search'),
       loadConfigDoc<IntranetConfig>('admin-config/intranet', 'intranet'),
+      loadConfigDoc<DeepSearchConfig>('admin-config/deep-search', 'deep-search'),
     ])
     res.json({
       research: researchLoaded ? researchLoaded.data : DEFAULT_RESEARCH_CONFIG,
       webSearchEnabled: !!webLoaded?.data.enabled,
       webSearchProvider: webLoaded?.data.provider ?? null,
       intranetEnabled: !!intranetLoaded?.data.enabled,
+      deepSearchEnabled: !!deepSearchLoaded?.data.enabled,
     })
   } catch (err) {
     const e = err as { message?: string }

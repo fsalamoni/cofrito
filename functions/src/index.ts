@@ -96,6 +96,9 @@ export {
   getIntranetConfig,
   saveIntranetConfig,
   testIntranet,
+  getDeepSearchConfig,
+  saveDeepSearchConfig,
+  testDeepSearch,
   getPublicResearchStatus,
 } from './handlers/admin-research'
 
