@@ -1,3 +1,4 @@
+/* eslint-disable no-case-declarations, @typescript-eslint/no-explicit-any */
 /**
  * Agent Events — persistência de eventos do pipeline em tempo real.
  *
@@ -50,7 +51,7 @@ export function mapToNarrative(
   conversationId: string,
   messageId: string,
 ): NarrativeEvent | null {
-  const base = { conversationId, messageId, ts: rawData.ts || new Date().toISOString() }
+  const base = { conversationId, messageId, ts: (rawData.ts as string) || new Date().toISOString() }
   switch (rawType) {
     case 'agent_start':
       if (rawData.role === 'orchestrator') {
