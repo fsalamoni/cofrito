@@ -57,6 +57,15 @@ jobs:
           # Forçar re-deploy das functions que não foram re-criadas
           # (App Check config cacheada)
           firebase functions:delete getProfile updateProfile getHistory getLLMConfig \
+            chatV2 chat openConsultaFormal submitFeedback deleteAccount \
+            bootstrapAdminMaster grantAdminByEmail \
+            adminReingest adminListConsultas adminGetStats \
+            adminUploadDocument adminListDocuments adminDeleteDocument \
+            adminGetSourcePaths adminSetSourcePaths adminSyncSourcePath \
+            getResearchConfig saveResearchConfig \
+            getWebSearchConfig saveWebSearchConfig testWebSearch \
+            getIntranetConfig saveIntranetConfig testIntranet \
+            getPublicResearchStatus \
             --region southamerica-east1 \
             --force \
             --token "$FIREBASE_TOKEN" || true
