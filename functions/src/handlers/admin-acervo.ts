@@ -73,3 +73,17 @@ export const saveAcervoPipelineConfig = onCall(
     return { ok: true, config: merged }
   },
 )
+
+// ── Forcar insercao do corpus seed (Sobre o Cofrito, Sobre o CAOCIPP, etc) ─
+
+export const adminSeedCorpus = onCall(
+  { cors: true, enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { ensureSeedCorpus } = await import('../services/seed-corpus')
+    const result = await ensureSeedCorpus()
+    logger.info('adminSeedCorpus.done', { uid: request.auth.uid, ...result })
+    return { ok: true, ...result }
+  },
+)

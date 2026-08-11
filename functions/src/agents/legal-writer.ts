@@ -42,7 +42,7 @@ export async function runLegalWriter(input: LegalWriterInput): Promise<{ answer:
       const out = await generateWithProvider({
         systemPrompt: LEGAL_WRITER_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
-        config: { ...llmConfig, maxTokens: 4000, temperature: 0.2 },
+        config: { ...llmConfig, maxTokens: 4000, temperature: 0.2 }, timeoutMs: 90_000,
         geminiApiKey,
       })
       logger.info('legal-writer.success', { durationMs: Date.now() - start })

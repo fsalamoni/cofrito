@@ -36,12 +36,23 @@ const ChatRequestSchema = z.object({
 })
 
 export const chatV2 = onCall(
-  { cors: true, enforceAppCheck: false },
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para conversar com o Cofrito.')
     }
     const userId = request.auth.uid
+    // Garantir que os documentos seed estao no corpus (idempotente, nao bloqueia)
+    // Usa flag em memoria para so rodar uma vez por cold start
+    if (!(globalThis as any).__cofritoSeedDone) {
+      (globalThis as any).__cofritoSeedDone = true
+      try {
+        const { ensureSeedCorpus } = await import('../services/seed-corpus')
+        void ensureSeedCorpus().catch((e) => logger.warn('seed-corpus init failed', { err: e?.message }))
+      } catch (e) {
+        logger.warn('seed-corpus import failed', { err: (e as Error).message })
+      }
+    }
     const parsed = ChatRequestSchema.safeParse(request.data)
     if (!parsed.success) {
       logger.error('chatV2 schema fail', { errors: parsed.error.errors, received: request.data })

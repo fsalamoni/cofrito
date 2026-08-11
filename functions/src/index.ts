@@ -89,6 +89,7 @@ export {
 export {
   getAcervoPipelineConfig,
   saveAcervoPipelineConfig,
+  adminSeedCorpus,
 } from './handlers/admin-acervo'
 
 // Admin: source paths

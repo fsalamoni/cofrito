@@ -43,6 +43,8 @@ export interface LLMGenerateInput {
   config: LLMConfigLike
   /** Chave do Google Gemini (admin) — usada apenas se config.provider === 'google' e config.apiKey vazia. */
   geminiApiKey?: string
+  /** Timeout em ms para a chamada LLM (default 60s). Anti-hang. */
+  timeoutMs?: number
 }
 
 export interface LLMGenerateOutput {
@@ -67,29 +69,37 @@ export async function generateWithProvider(input: LLMGenerateInput): Promise<LLM
 
   const temperature = cfg.temperature ?? 0.3
   const maxTokens = cfg.maxTokens ?? 2000
+  const timeoutMs = input.timeoutMs ?? 60_000  // 60s default (anti-hang)
 
-  switch (cfg.provider) {
-    case 'google':
-      return callGoogle({ ...cfg, apiKey: effectiveApiKey, temperature, maxTokens }, input)
-    case 'anthropic':
-      return callAnthropic({ ...cfg, apiKey: effectiveApiKey, temperature, maxTokens }, input)
-    case 'openai':
-    case 'openrouter':
-    case 'deepseek':
-    case 'kimi':
-    case 'qwen':
-    case 'groq':
-    case 'nvidia':
-    case 'mistral':
-    case 'xai':
-    case 'cohere':
-    case 'together':
-    case 'fireworks':
-    case 'perplexity':
-    case 'ollama':
-    case 'custom':
-      return callOpenAICompat({ ...cfg, apiKey: effectiveApiKey, temperature, maxTokens }, input)
+  // Anti-hang: wrappear a chamada com timeout
+  const callProvider = async (): Promise<LLMGenerateOutput> => {
+    switch (cfg.provider) {
+      case 'google':
+        return callGoogle({ ...cfg, apiKey: effectiveApiKey, temperature, maxTokens }, input)
+      case 'anthropic':
+        return callAnthropic({ ...cfg, apiKey: effectiveApiKey, temperature, maxTokens }, input)
+      case 'openai':
+      case 'openrouter':
+      case 'deepseek':
+      case 'kimi':
+      case 'qwen':
+      case 'groq':
+      case 'nvidia':
+      case 'mistral':
+      case 'xai':
+      case 'cohere':
+      case 'together':
+      case 'fireworks':
+      case 'perplexity':
+      case 'ollama':
+      case 'custom':
+        return callOpenAICompat({ ...cfg, apiKey: effectiveApiKey, temperature, maxTokens }, input)
+      default:
+        return stubResponse(cfg, input.messages)
+    }
   }
+
+  return withTimeout(callProvider(), timeoutMs, 'LLM call')
 }
 
 function stubResponse(cfg: LLMConfigLike, _msgs: LLMMessage[]): LLMGenerateOutput {
@@ -299,5 +309,21 @@ export async function listModelsForProvider(
     return (data.data ?? []).map((m: any) => ({ id: m.id, name: m.id }))
   } catch {
     return []
+  }
+}
+
+/**
+ * Helper: wrappa uma promise com timeout (anti-hang).
+ * Se a promise nao resolver dentro de `ms`, rejeita com erro.
+ */
+export async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} excedeu o timeout de ${ms / 1000}s`)), ms)
+  })
+  try {
+    return await Promise.race([p, timeoutPromise])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }

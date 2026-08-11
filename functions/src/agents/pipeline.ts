@@ -63,6 +63,12 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
     logger.info(`trail.${e.type}`, e as any)
   }
 
+  // Watchdog geral: se o pipeline demorar mais que o esperado, NAO trava.
+  // Cloud Functions Gen 2 tem timeout de 300s no onCall (configurado no chatV2).
+  // Se por algum motivo chegar perto do limite, abrimos mao e finalizamos com o que temos.
+  const PIPELINE_DEADLINE_MS = 240_000  // 4 min (margem de seguranca)
+  const pipelineDeadline = Date.now() + PIPELINE_DEADLINE_MS
+
   const runs: AgentRun[] = []
   const allSources: import('./types').SourceRef[] = []
   const iterationLog: string[] = []
@@ -237,6 +243,16 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
     }
   }
 
+  // Watchdog: se passou do deadline, finaliza com o que tem
+  if (Date.now() > pipelineDeadline) {
+    logger.warn('pipeline.watchdog.deadline', {
+      userId,
+      durationMs: Date.now() - (pipelineDeadline - PIPELINE_DEADLINE_MS),
+    })
+    // Garante que tem uma resposta final
+    const fallbackAnswer = finalAnswer || 'O processamento demorou mais que o esperado. Por favor, tente novamente com uma pergunta mais específica.'
+    return finalize(runs, plan!, compiledSources, fallbackAnswer, requiresLegalWriting, iterations, trail, logger, userId, conversationId, criticScore)
+  }
   return finalize(runs, plan!, compiledSources, finalAnswer, requiresLegalWriting, iterations, trail, logger, userId, conversationId, criticScore)
 }
 
@@ -268,6 +284,20 @@ async function finalize(
   }
 }
 
+const AGENT_TIMEOUT_MS = 90_000  // 90s por agente (anti-hang)
+
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} excedeu o timeout de ${ms / 1000}s`)), ms)
+  })
+  try {
+    return await Promise.race([p, timeoutPromise])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 async function runAgent<T>(
   role: AgentRole,
   fn: () => Promise<T>,
@@ -285,7 +315,7 @@ async function runAgent<T>(
     status: 'pending',
   }
   try {
-    const result = await fn()
+    const result = await withTimeout(fn(), AGENT_TIMEOUT_MS, `agent.${role}`)
     run.finishedAt = new Date().toISOString()
     run.durationMs = Date.now() - start
     run.status = 'success'
