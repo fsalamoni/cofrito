@@ -216,53 +216,64 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
 
 // ── Normalizadores (cada skill) ───────────────────────────────────────
 
-function normalizeClassification(raw: any): Classification {
-  if (!raw || typeof raw !== 'object') return getDefaultClassification()
-  const naturezaCandidate = raw.natureza as Natureza | undefined
+function normalizeClassification(raw: unknown): Classification {
+  const obj = asRecord(raw)
+  if (!obj) return getDefaultClassification()
+  const naturezaCandidate = obj.natureza as Natureza | undefined
   const natureza: Natureza = naturezaCandidate && NATUREZA_VALUES.includes(naturezaCandidate)
     ? naturezaCandidate
     : 'consultivo'
   return {
     natureza,
-    areaDireito: Array.isArray(raw.area_direito) ? raw.area_direito.filter((x: unknown) => typeof x === 'string') : [],
-    assuntos: Array.isArray(raw.assuntos) ? raw.assuntos.filter((x: unknown) => typeof x === 'string') : [],
-    tipoDocumento: typeof raw.tipo_documento === 'string' ? raw.tipo_documento : '',
-    contexto: Array.isArray(raw.contexto) ? raw.contexto.filter((x: unknown) => typeof x === 'string') : [],
+    areaDireito: Array.isArray(obj.area_direito) ? obj.area_direito.filter((x: unknown) => typeof x === 'string') : [],
+    assuntos: Array.isArray(obj.assuntos) ? obj.assuntos.filter((x: unknown) => typeof x === 'string') : [],
+    tipoDocumento: typeof obj.tipo_documento === 'string' ? obj.tipo_documento : '',
+    contexto: Array.isArray(obj.contexto) ? obj.contexto.filter((x: unknown) => typeof x === 'string') : [],
   }
 }
 
-function normalizeEmenta(raw: any, fileName: string): Ementa {
-  if (!raw || typeof raw !== 'object') return getDefaultEmenta()
+function normalizeEmenta(raw: unknown, fileName: string): Ementa {
+  const obj = asRecord(raw)
+  if (!obj) return getDefaultEmenta()
   // Extrair keywords tambem do filename (reforca busca)
   const filenameKeywords = fileName
     .replace(/^\d{8}\s*-\s*/, '')  // remove "YYYYMMDD - " prefix
     .replace(/\.(docx?|pdf|txt|md)$/i, '')
-    .split(/[.\s,;_\-]+/)
+    .split(/[.\s,;_-]+/)
     .filter(w => w.length > 2)
     .map(w => w.toLowerCase())
-  const llmKeywords = Array.isArray(raw.keywords)
-    ? raw.keywords.filter((x: unknown) => typeof x === 'string')
+  const llmKeywords = Array.isArray(obj.keywords)
+    ? obj.keywords.filter((x: unknown) => typeof x === 'string')
     : []
   return {
-    tipo: typeof raw.tipo === 'string' ? raw.tipo : 'Outro',
-    assunto: typeof raw.assunto === 'string' ? raw.assunto : '',
-    sintese: typeof raw.sintese === 'string' ? raw.sintese : '',
-    areas: Array.isArray(raw.areas) ? raw.areas.filter((x: unknown) => typeof x === 'string') : [],
-    topicos: Array.isArray(raw.topicos) ? raw.topicos.filter((x: unknown) => typeof x === 'string') : [],
-    conclusao: typeof raw.conclusao === 'string' ? raw.conclusao : '',
+    tipo: typeof obj.tipo === 'string' ? obj.tipo : 'Outro',
+    assunto: typeof obj.assunto === 'string' ? obj.assunto : '',
+    sintese: typeof obj.sintese === 'string' ? obj.sintese : '',
+    areas: Array.isArray(obj.areas) ? obj.areas.filter((x: unknown) => typeof x === 'string') : [],
+    topicos: Array.isArray(obj.topicos) ? obj.topicos.filter((x: unknown) => typeof x === 'string') : [],
+    conclusao: typeof obj.conclusao === 'string' ? obj.conclusao : '',
     keywords: Array.from(new Set([...llmKeywords, ...filenameKeywords])).slice(0, 30),
   }
 }
 
-function normalizeKeyPoints(raw: any): KeyPoints {
-  if (!raw || typeof raw !== 'object') return { items: [], reusableContent: '' }
-  const items = Array.isArray(raw.items)
-    ? raw.items.filter((x: unknown) => typeof x === 'string').slice(0, 8)
+function normalizeKeyPoints(raw: unknown): KeyPoints {
+  const obj = asRecord(raw)
+  if (!obj) return { items: [], reusableContent: '' }
+  const items = Array.isArray(obj.items)
+    ? obj.items.filter((x: unknown) => typeof x === 'string').slice(0, 8)
     : []
-  const reusableContent = typeof raw.reusable_content === 'string'
-    ? raw.reusable_content.slice(0, 2000)
+  const reusableContent = typeof obj.reusable_content === 'string'
+    ? obj.reusable_content.slice(0, 2000)
     : ''
   return { items, reusableContent }
+}
+
+
+/**
+ * Type guard: verifica se unknown eh um objeto nao-null.
+ */
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -282,7 +293,7 @@ function getDefaultEmenta(): Ementa {
  *  2. Remover markdown code blocks
  *  3. Encontrar primeiro { e ultimo }
  */
-function tryParseUnifiedJson(raw: string): { ok: true; value: any } | { ok: false; error: string } {
+function tryParseUnifiedJson(raw: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
   if (!raw) return { ok: false, error: 'empty response' }
   let jsonStr = raw.trim()
   // 1. Remover markdown code blocks
