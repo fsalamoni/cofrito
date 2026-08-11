@@ -10,6 +10,8 @@ interface ChatState {
   conversations: Conversation[]
   isOpen: boolean
   isThinking: boolean
+  /** ID do messageId 'live' para ouvir eventos em tempo real (Fase 2f) */
+  livePipelineMessageId: string | null
   isInitialized: boolean
   /** Permite que o LLM complemente a resposta com informações externas ao corpus. */
   allowExternal: boolean
@@ -27,6 +29,7 @@ interface ChatState {
   addMessage: (m: ChatMessage) => void
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void
   setThinking: (b: boolean) => void
+  setLivePipelineMessageId: (id: string | null) => void
   setConversationId: (id: string | null) => void
   loadConversation: (id: string, messages: ChatMessage[]) => void
   setAllowExternal: (b: boolean) => void
@@ -73,6 +76,7 @@ export const useChatStore = create<ChatState>((set) => ({
   conversations: [],
   isOpen: false,
   isThinking: false,
+  livePipelineMessageId: null,
   isInitialized: false,
   allowExternal: loadInitialAllowExternal(),
   requestLegalAnalysis: loadInitialRequestLegalAnalysis(),
@@ -99,6 +103,7 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
 
   setThinking: (b) => set({ isThinking: b }),
+  setLivePipelineMessageId: (id) => set({ livePipelineMessageId: id }),
 
   setConversationId: (id) => set({ conversationId: id }),
 

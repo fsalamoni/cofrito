@@ -17,6 +17,7 @@ import { retrieveRelevantChunks } from '../services/retrieval'
 import { type LLMConfigLike } from '../services/llm-providers'
 import { buildSystemPrompt } from '../prompts/system'
 import { saveMessage, getRecentHistory } from '../services/history'
+import { createOnTrailHandler } from '../services/agent-events'
 import { checkScopeGuardrail } from '../services/guardrails'
 import { getUserProfile } from '../services/profile'
 import { logAnalytics } from '../services/analytics'
@@ -174,6 +175,11 @@ export const chatV2 = onCall(
       let iterations = 0
       let criticScore: number | undefined
 
+      // Fase 2f: ID virtual para a timeline de eventos em tempo real
+      const pipelineConvId = conversationId || `pending_${userId}_${Date.now()}`
+      const pipelineMessageId = `msg-${Date.now()}-live`
+      const onTrail = createOnTrailHandler(pipelineConvId, pipelineMessageId)
+
       try {
         const { runAgentPipeline } = await import('../agents/pipeline')
         const result = await runAgentPipeline({
@@ -196,6 +202,7 @@ export const chatV2 = onCall(
             warn: (m: string, x?: unknown) => logger.warn(m, x),
             error: (m: string, x?: unknown) => logger.error(m, x),
           },
+          onTrail,
         })
         content = result.finalAnswer
         agentRunsCount = result.agentRuns.length
@@ -244,11 +251,13 @@ export const chatV2 = onCall(
       const latencyMs = Date.now() - start
       logAnalytics('chat', { userId, intent: context?.intent ?? 'general', sourcesCount: sources.length, latencyMs, tokensUsed, allowExternal, provider, model, agentRunsCount, iterations, criticScore })
 
-      logger.info('chat.success', { userId, conversationId: newConvId, messageId, latencyMs, tokensUsed, allowExternal, provider, model, agentRunsCount, iterations, criticScore })
+      logger.info('chat.success', { userId, conversationId: newConvId, messageId,
+        pipelineMessageId, latencyMs, tokensUsed, allowExternal, provider, model, agentRunsCount, iterations, criticScore })
 
       return {
         conversationId: newConvId,
         messageId,
+        pipelineMessageId,
         reply: content,
         sources,
         intent: context?.intent || 'unknown',

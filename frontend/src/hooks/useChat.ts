@@ -19,6 +19,7 @@ export function useChat() {
     effort,
     addMessage,
     setThinking,
+    setLivePipelineMessageId,
     setConversationId,
     startNewConversation,
   } = useChatStore()
@@ -43,6 +44,7 @@ export function useChat() {
       }
       addMessage(userMessage)
       setThinking(true)
+      setLivePipelineMessageId(null)
 
       try {
         // 2. Chama Cloud Function
@@ -57,6 +59,9 @@ export function useChat() {
         // 3. Adiciona resposta
         const response = result.data as ChatResponse
         setConversationId(response.conversationId)
+        if (response.pipelineMessageId) {
+          setLivePipelineMessageId(response.pipelineMessageId)
+        }
 
         const assistantMessage: ChatMessage = {
           id: response.messageId,
@@ -73,6 +78,7 @@ export function useChat() {
           createdAt: new Date().toISOString(),
         }
         addMessage(assistantMessage)
+        setTimeout(() => setLivePipelineMessageId(null), 1500)
       } catch (err: any) {
         const code = err?.code as string | undefined
         if (code === 'functions/not-found' || code === 'functions/unavailable') {
@@ -89,7 +95,8 @@ export function useChat() {
         setThinking(false)
       }
     },
-    [user, conversationId, isThinking, allowExternal, requestLegalAnalysis, effort, addMessage, setThinking, setConversationId, pushToast],
+    [user, conversationId, isThinking, allowExternal, requestLegalAnalysis, effort, addMessage, setThinking,
+    setLivePipelineMessageId, setConversationId, pushToast],
   )
 
   const restart = useCallback(() => {

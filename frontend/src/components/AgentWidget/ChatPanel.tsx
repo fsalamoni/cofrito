@@ -23,6 +23,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { MessageBubble } from './MessageBubble'
 import { Welcome } from './Welcome'
 import { TypingIndicator } from './TypingIndicator'
+import { OrchestratorTimeline } from './OrchestratorTimeline'
 import { LoginPrompt } from './LoginPrompt'
 
 export function ChatPanel() {
@@ -96,7 +97,7 @@ export function ChatPanel() {
             {messages.map((m) => (
               <MessageBubble key={m.id} message={m} />
             ))}
-            {isThinking && <TypingIndicator />}
+            {isThinking ? <OrchestratorTimelineWrapper /> : <TypingIndicator />}
           </>
         )}
       </div>
@@ -390,4 +391,17 @@ const kbdStyle: React.CSSProperties = {
   padding: '0 4px',
   fontSize: 9,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+}
+
+
+// Wrapper que conecta OrchestratorTimeline ao store
+function OrchestratorTimelineWrapper() {
+  const { isThinking, conversationId, livePipelineMessageId } = useChatStore()
+  return (
+    <OrchestratorTimeline
+      conversationId={conversationId}
+      pipelineMessageId={livePipelineMessageId}
+      isActive={isThinking}
+    />
+  )
 }

@@ -51,6 +51,9 @@ export interface ChatMessage {
   agentRuns?: number
   iterations?: number
   criticScore?: number
+
+  /** ID do messageId "live" para ouvir eventos do orquestrador em tempo real (Fase 2f) */
+  pipelineMessageId?: string
   createdAt: string
 }
 
@@ -102,6 +105,9 @@ export interface ChatResponse {
   iterations?: number
   /** Score do crítico (0-100) — só presente se rodou */
   criticScore?: number
+
+  /** ID do messageId "live" para ouvir eventos do orquestrador em tempo real (Fase 2f) */
+  pipelineMessageId?: string
 }
 
 export interface ConsultaRequest {
