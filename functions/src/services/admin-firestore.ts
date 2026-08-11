@@ -6,7 +6,7 @@
  * default exista antes de chamar getFirestore()/getAuth().
  */
 import { getApps, initializeApp, applicationDefault } from 'firebase-admin/app'
-import { getFirestore, type Firestore } from 'firebase-admin/firestore'
+import { getFirestore, type Firestore } from './firestore'
 import { getAuth, type Auth } from 'firebase-admin/auth'
 
 let _initialized = false

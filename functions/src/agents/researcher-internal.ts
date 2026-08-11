@@ -16,7 +16,7 @@
  *  - Calcula relevância (cosine sim + boost de recência)
  */
 
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore } from '../services/firestore'
 import type { ResearchPoint, SourceRef, ResearchConfig } from './types'
 
 export interface ResearcherInternalInput {

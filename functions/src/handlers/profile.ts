@@ -3,7 +3,7 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../services/firestore'
 import { getUserProfile as getProfileFromDB } from '../services/profile'
 import { z } from 'zod'
 

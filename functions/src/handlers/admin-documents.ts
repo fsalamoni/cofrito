@@ -11,7 +11,7 @@
  *    (local / WebDAV / rede)
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from '../services/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { assertAdminMaster } from '../middleware/auth'
 import { ingestInline } from '../services/ingestion-buffer'

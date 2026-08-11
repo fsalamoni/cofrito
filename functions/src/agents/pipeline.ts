@@ -26,7 +26,7 @@ import { runLegalWriter, buildRefusalAnswer } from './legal-writer'
 import { runCritic } from './critic'
 import { buildSystemPrompt } from '../prompts/system'
 import { buildFallbackMessage } from './prompts'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from '../services/firestore'
 import type {
   AgentRun,
   AgentRole,

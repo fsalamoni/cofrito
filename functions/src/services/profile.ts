@@ -2,7 +2,7 @@
  * Profile — leitura e atualização de perfil.
  */
 
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from './firestore'
 
 export interface UserProfile {
   uid: string

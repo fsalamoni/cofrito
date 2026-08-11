@@ -4,7 +4,7 @@
  * direto no Firestore sem precisar de arquivo em disco.
  */
 
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from './firestore'
 import { chunkText } from '../utils/chunking'
 import { embedBatch } from './embeddings'
 

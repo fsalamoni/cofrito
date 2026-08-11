@@ -7,7 +7,7 @@
  *  - master: doc `admin-config/llm` (global, esconde user)
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from '../services/firestore'
 import { assertAdminMaster } from '../middleware/auth'
 import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../services/llm-providers'
 

@@ -2,7 +2,7 @@
  * Middleware de auth — verifica roles admin/master.
  */
 
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore } from '../services/firestore'
 import { HttpsError } from 'firebase-functions/v2/https'
 
 export async function assertAdmin(uid: string): Promise<void> {

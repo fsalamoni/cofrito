@@ -11,7 +11,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
 import { z } from 'zod'
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore } from '../services/firestore'
 
 import { retrieveRelevantChunks } from '../services/retrieval'
 import { type LLMConfigLike } from '../services/llm-providers'

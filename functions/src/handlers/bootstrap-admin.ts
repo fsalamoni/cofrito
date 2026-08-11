@@ -14,7 +14,7 @@
  *        -d '{"email":"fsalamoni@gmail.com","secret":"..."}'
  */
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from '../services/firestore'
 import { getAuth } from 'firebase-admin/auth'
 
 // ── bootstrapAdminMaster (autenticado) ───────────────────────────────────

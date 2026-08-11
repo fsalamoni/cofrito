@@ -2,7 +2,7 @@
  * History — lê e escreve mensagens.
  */
 
-import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp, FieldValue } from './firestore'
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'

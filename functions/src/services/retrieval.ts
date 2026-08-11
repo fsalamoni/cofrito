@@ -4,7 +4,7 @@
  * Integração de embedding desativada neste deploy (decisão 2026-08).
  */
 
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore } from './firestore'
 
 export interface RetrievedChunk {
   id: string

@@ -16,7 +16,7 @@
  */
 
 import { HttpsError, onCall, onRequest, type Request } from 'firebase-functions/v2/https'
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore } from '../services/firestore'
 import { logger } from 'firebase-functions'
 import {
   DEFAULT_RESEARCH_CONFIG,

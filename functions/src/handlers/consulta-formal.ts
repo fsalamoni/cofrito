@@ -4,7 +4,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../services/firestore'
 import { z } from 'zod'
 
 import { sendEmail } from '../services/email'

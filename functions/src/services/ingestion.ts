@@ -10,7 +10,7 @@
  *  6. Validação
  */
 
-import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp, FieldValue } from './firestore'
 import matter from 'gray-matter'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
