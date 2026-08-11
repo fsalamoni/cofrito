@@ -11,8 +11,10 @@
  *    (local / WebDAV / rede)
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { logger } from 'firebase-functions'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
+import { analyzeAcervoDoc } from '../services/acervo-analyzer'
 import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from 'firebase-admin/storage'
@@ -214,8 +216,16 @@ export const adminUploadDocument = onCall(
       }
     }
 
-    // 6. TODO Fase 2b: disparar analyzeAcervoDoc() em background
-    // (classificador + ementa + pontos relevantes via LLM)
+    // 6. Disparar analyzeAcervoDoc em background (Fase 2b)
+    // Os 3 agentes LLM (classificador, ementa, keyPoints) rodam em paralelo.
+    // O resultado e gravado no Firestore quando completam.
+    void runAnalysisInBackground({
+      uid: request.auth!.uid,
+      docId,
+      fileName: safeName,
+      text: text.slice(0, 50_000),  // primeiros 50k chars (LLM nao precisa de mais)
+      docRef,
+    })
 
     return {
       ok: true,
@@ -445,4 +455,110 @@ function inferType(fileName: string): string {
     html: 'ato',
   }
   return map[ext ?? ''] ?? 'manual'
+}
+
+
+/**
+ * Roda analyzeAcervoDoc em background (sem bloquear a response).
+ * Carrega o LLM config do admin global, roda os 3 agentes, salva resultado no Firestore.
+ */
+async function runAnalysisInBackground(input: {
+  uid: string
+  docId: string
+  fileName: string
+  text: string
+  docRef: FirebaseFirestore.DocumentReference
+}): Promise<void> {
+  try {
+    // Marcar como processando
+    await input.docRef.set(
+      { status: 'analise_processando', analysisStartedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    )
+    // Carregar LLM config (admin global OU do user, com fallback)
+    const llmConfig = await resolveLLMConfigForAnalysis(input.uid)
+    if (!llmConfig) {
+      logger.warn('analyzeAcervoDoc: sem LLM config disponivel', { docId: input.docId })
+      await input.docRef.set(
+        { status: 'analise_pendente', analysisError: 'Nenhum LLM configurado (admin-config/llm ou geminiApiKey)', analysisCompletedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      )
+      return
+    }
+    logger.info('analyzeAcervoDoc: starting', { docId: input.docId, provider: llmConfig.provider, model: llmConfig.model })
+    const result = await analyzeAcervoDoc({
+      uid: input.uid,
+      
+      docId: input.docId,
+      fileName: input.fileName,
+      text: input.text,
+      llmConfig,
+    })
+    // Salvar resultado
+    await input.docRef.set(
+      {
+        classification: result.classification,
+        ementa: result.ementa,
+        keyPoints: result.keyPoints,
+        status: 'analisado',
+        analyzedAt: FieldValue.serverTimestamp(),
+        analysisVersion: 1,
+        analysisLatencyMs: result.totalLatencyMs,
+      },
+      { merge: true },
+    )
+    logger.info('analyzeAcervoDoc: done', { docId: input.docId, latencyMs: result.totalLatencyMs })
+  } catch (err) {
+    logger.error('analyzeAcervoDoc: failed', { docId: input.docId, err: (err as Error).message })
+    try {
+      await input.docRef.set(
+        { status: 'erro_analise', analysisError: (err as Error).message, analysisCompletedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      )
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Resolve o LLM config para analise:
+ *  1. admin-config/llm (master)
+ *  2. GEMINI_API_KEY do ambiente
+ *  3. fallback: stub
+ */
+async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
+  provider: 'openrouter' | 'google' | 'openai' | 'anthropic' | 'custom'
+  model: string
+  apiKey: string
+  temperature?: number
+  maxTokens?: number
+} | null> {
+  const db = getFirestore()
+  const masterSnap = await db.doc('admin-config/llm').get()
+  if (masterSnap.exists) {
+    const data = masterSnap.data() as any
+    if (data.data && data.data.apiKey && data.data.model && data.data.provider) {
+      return {
+        provider: data.data.provider,
+        model: data.data.model,
+        apiKey: data.data.apiKey,
+        temperature: data.data.temperature,
+        maxTokens: data.data.maxTokens,
+      }
+    }
+    if (data.apiKey && data.model && data.provider) {
+      // Legacy format
+      return { provider: data.provider, model: data.model, apiKey: data.apiKey }
+    }
+  }
+  // Fallback: GEMINI_API_KEY
+  if (process.env.GEMINI_API_KEY) {
+    return {
+      provider: 'google',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      apiKey: process.env.GEMINI_API_KEY,
+    }
+  }
+  return null
 }
