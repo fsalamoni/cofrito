@@ -120,6 +120,7 @@ export interface OrchestratorPlan {
   detectedAreas?: string[]       // áreas de atuação detectadas
   outOfScopeReason?: string      // se intent=out-of-scope
   refusalReason?: string         // se intent=refusal
+  isAboutItself?: boolean         // fast-path: pergunta sobre o proprio agente
 }
 
 export interface SourceRef {

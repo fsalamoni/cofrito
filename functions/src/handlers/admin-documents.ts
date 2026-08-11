@@ -251,7 +251,14 @@ export const adminListDocuments = onCall(
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
     const db = getFirestore()
-    const snap = await db.collection('corpus/uploaded').orderBy('createdAt', 'desc').limit(500).get()
+    let snap
+    try {
+      snap = await db.collection('corpus/uploaded').orderBy('createdAt', 'desc').limit(500).get()
+    } catch (err: any) {
+      // Fallback: sem orderBy (evita dependencia de indice composto)
+      logger.warn('adminListDocuments.orderBy-failed', { err: err?.message })
+      snap = await db.collection('corpus/uploaded').limit(500).get()
+    }
     // Retorna shape enxuto para a planilha (sem textContent pesado)
     return snap.docs.map((d) => {
       const data = d.data()

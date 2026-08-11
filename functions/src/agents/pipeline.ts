@@ -35,7 +35,8 @@ import type {
   TrailEvent,
   EffortPreset,
 } from './types'
-import { EFFORT_PRESETS } from './types'
+import { EFFORT_PRESETS, type OrchestratorPlan } from './types'
+import { isAboutItself, getIdentityResponse } from './self-detect'
 
 export async function runAgentPipeline(input: PipelineInput): Promise<PipelineResult> {
   const {
@@ -61,6 +62,48 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
     trail.push(e)
     try { onTrail?.(e) } catch { /* silencioso */ }
     logger.info(`trail.${e.type}`, e as any)
+  }
+
+  // FAST-PATH: deteccao de "pergunta sobre o proprio agente".
+  // Se a pergunta e sobre o Cofrito (identidade, funcao, como funciona),
+  // responde IMEDIATAMENTE com o bloco # IDENTIDADE, sem passar pelo pipeline.
+  // Garante que o bot NUNCA diz "nao encontrei material sobre mim".
+  if (isAboutItself(question)) {
+    logger.info('pipeline.fastpath.identity', { question: question.slice(0, 100) })
+    const identityAnswer = getIdentityResponse(false)
+    const startedAt = new Date().toISOString()
+    emit({ type: 'agent_start', role: 'orchestrator', ts: startedAt })
+    emit({ type: 'agent_end', role: 'orchestrator', ts: startedAt, status: 'success', durationMs: 0 })
+    emit({ type: 'final_answer', length: identityAnswer.length, ts: startedAt })
+    // Plano mock para a fast-path (estrutura compativel com OrchestratorPlan)
+    const identityPlan: OrchestratorPlan = {
+      intent: 'simple-question',
+      reasoning: 'Fast-path: pergunta sobre o proprio agente (identidade, funcao, como funciona).',
+      points: [],
+      requiresWebSearch: false,
+      requiresLegalWriting: false,
+      requiresCompilation: false,
+      requiresInternalSearch: false,
+      isAboutItself: true,
+    }
+    return {
+      orchestratorPlan: identityPlan,
+      agentRuns: [{
+        id: 'identity-fastpath',
+        role: 'orchestrator',
+        startedAt,
+        finishedAt: startedAt,
+        durationMs: 0,
+        input: { question },
+        output: { answer: identityAnswer, sources: [] },
+        status: 'success',
+      }],
+      compiledSources: [],
+      finalAnswer: identityAnswer,
+      needsLegalWriting: false,
+      iterations: 0,
+      trail,
+    }
   }
 
   // Watchdog geral: se o pipeline demorar mais que o esperado, NAO trava.
