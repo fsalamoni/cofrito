@@ -51,6 +51,10 @@ export const api = {
   adminListDocuments: () => httpsCallable<void, any[]>(functions, 'adminListDocuments')(),
   adminDeleteDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; removedChunks: number }>(functions, 'adminDeleteDocument')(docId),
+  adminGetDocument: (docId: string) =>
+    httpsCallable<string, any>(functions, 'adminGetDocument')(docId),
+  adminReanalyzeDocument: (docId: string) =>
+    httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
 
   // Admin: source paths
   adminGetSourcePaths: () =>

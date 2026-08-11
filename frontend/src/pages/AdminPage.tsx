@@ -18,7 +18,7 @@ import { AdminSettings } from '@/components/AgentWidget/settings/AdminSettings'
 import { AgentAvatar } from '@/components/AgentWidget/AgentAvatar'
 import { AgentWidget } from '@/components/AgentWidget'
 import { useChatStore } from '@/stores/chatStore'
-import { DocumentUpload } from './admin/DocumentUpload'
+import { DocumentCatalog } from './admin/DocumentCatalog'
 import { SourcePaths } from './admin/SourcePaths'
 import { ResearchConfig } from './admin/ResearchConfig'
 import { WebSearchConfig } from './admin/WebSearchConfig'
@@ -212,7 +212,7 @@ export function AdminPage() {
                 Envie documentos (PDF, DOCX, TXT, MD, HTML) para o corpus do Cofrito.
                 Após o upload, os documentos ficam disponíveis para consulta pela LLM.
               </p>
-              <DocumentUpload />
+              <DocumentCatalog />
             </>
           )}
           {tab === 'paths' && (

@@ -81,6 +81,8 @@ export {
   adminUploadDocument,
   adminListDocuments,
   adminDeleteDocument,
+  adminGetDocument,
+  adminReanalyzeDocument,
   adminGetSourcePaths,
   adminSetSourcePaths,
   adminSyncSourcePath,

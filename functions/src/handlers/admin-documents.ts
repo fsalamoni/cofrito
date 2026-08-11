@@ -252,7 +252,35 @@ export const adminListDocuments = onCall(
     await assertAdminMaster(request.auth.uid)
     const db = getFirestore()
     const snap = await db.collection('corpus/uploaded').orderBy('createdAt', 'desc').limit(500).get()
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    // Retorna shape enxuto para a planilha (sem textContent pesado)
+    return snap.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        fileName: data.fileName,
+        title: data.title,
+        type: data.type,
+        area: data.area || [],
+        tags: data.tags || [],
+        status: data.status,
+        storageSize: data.storageSize,
+        originalSize: data.originalSize,
+        compressedSize: data.compressedSize,
+        compressionGain: data.compressionGain,
+        format: data.meta?.format,
+        pages: data.meta?.pages,
+        paragraphs: data.meta?.paragraphs,
+        compressionRatio: data.meta?.compressionRatio,
+        classification: data.classification || null,
+        ementa: data.ementa || null,
+        keyPoints: data.keyPoints || null,
+        analyzedAt: data.analyzedAt,
+        analysisError: data.analysisError,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+        createdBy: data.createdBy,
+      }
+    })
   },
 )
 
@@ -586,3 +614,52 @@ async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
   }
   return null
 }
+
+// ── Pegar documento completo (com JSON estruturado) ─────────────────────
+
+export const adminGetDocument = onCall(
+  { cors: true, enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId } = (request.data || {}) as { docId: string }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    const db = getFirestore()
+    const docSnap = await db.doc(`corpus/uploaded/${docId}`).get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+    return { id: docSnap.id, ...docSnap.data() }
+  },
+)
+
+// ── Re-analisar documento (dispara analyzeAcervoDoc novamente) ─────────
+
+export const adminReanalyzeDocument = onCall(
+  { cors: true, enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId } = (request.data || {}) as { docId: string }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    const db = getFirestore()
+    const docSnap = await db.doc(`corpus/uploaded/${docId}`).get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+    const data = docSnap.data() || {}
+    const text = (data.textOriginal as string) || (data.textContent as string) || ''
+    if (!text) throw new HttpsError('failed-precondition', 'Documento sem texto para analisar')
+    // Marcar como processando
+    await docSnap.ref.set(
+      { status: 'analise_processando', analysisStartedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    )
+    // Disparar em background
+    void runAnalysisInBackground({
+      uid: request.auth!.uid,
+      docId,
+      fileName: (data.fileName as string) || 'documento',
+      text: text.slice(0, 50_000),
+      docRef: docSnap.ref,
+    })
+    return { ok: true, docId, message: 'Re-analise iniciada em background' }
+  },
+)
+
