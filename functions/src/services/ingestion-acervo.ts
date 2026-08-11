@@ -92,7 +92,7 @@ export function buildSearchKeywords(input: {
   const filenameBase = input.fileName
     .replace(/^\d{8}\s*-\s*/, '')
     .replace(/\.(docx?|pdf|txt|md)$/i, '')
-    .split(/[.\s,;_\-]+/)
+    .split(/[.\s,;_-]+/)
     .filter(w => w.length > 2)
   filenameBase.forEach(k => set.add(k.toLowerCase()))
 
