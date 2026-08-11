@@ -83,6 +83,16 @@ export {
   adminDeleteDocument,
   adminGetDocument,
   adminReanalyzeDocument,
+} from './handlers/admin-documents'
+
+// Admin: configuracao do pipeline de analise do acervo
+export {
+  getAcervoPipelineConfig,
+  saveAcervoPipelineConfig,
+} from './handlers/admin-acervo'
+
+// Admin: source paths
+export {
   adminGetSourcePaths,
   adminSetSourcePaths,
   adminSyncSourcePath,

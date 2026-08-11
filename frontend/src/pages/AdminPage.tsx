@@ -19,13 +19,14 @@ import { AgentAvatar } from '@/components/AgentWidget/AgentAvatar'
 import { AgentWidget } from '@/components/AgentWidget'
 import { useChatStore } from '@/stores/chatStore'
 import { DocumentCatalog } from './admin/DocumentCatalog'
+import { AcervoPipelineConfig } from './admin/AcervoPipelineConfig'
 import { SourcePaths } from './admin/SourcePaths'
 import { ResearchConfig } from './admin/ResearchConfig'
 import { WebSearchConfig } from './admin/WebSearchConfig'
 import { IntranetConfig } from './admin/IntranetConfig'
-import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2 } from 'lucide-react'
+import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2, Brain } from 'lucide-react'
 
-type AdminTab = 'llm' | 'documents' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
+type AdminTab = 'llm' | 'documents' | 'acervo' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
 
 export function AdminPage() {
   const { user, signOut } = useAuth()
@@ -135,6 +136,13 @@ export function AdminPage() {
               hint="Enviar PDFs, DOCX, MD para o corpus"
             />
             <SidebarItem
+              icon={<Brain size={16} />}
+              label="Pipeline do Acervo"
+              active={tab === 'acervo'}
+              onClick={() => { window.location.hash = '#/admin/acervo'; setTab('acervo') }}
+              hint="Toggles dos agentes de analise + modelo"
+            />
+            <SidebarItem
               icon={<FolderTree size={16} />}
               label="Pastas de Pesquisa"
               active={tab === 'paths'}
@@ -213,6 +221,16 @@ export function AdminPage() {
                 Após o upload, os documentos ficam disponíveis para consulta pela LLM.
               </p>
               <DocumentCatalog />
+            </>
+          )}
+          {tab === 'acervo' && (
+            <>
+              <h2 style={pageTitleStyle}>Pipeline do Acervo</h2>
+              <p style={pageDescStyle}>
+                Configure quais agentes de análise rodam em cada documento do acervo
+                e o modelo LLM usado. Por padrão, usa o LLM global carregado.
+              </p>
+              <AcervoPipelineConfig />
             </>
           )}
           {tab === 'paths' && (

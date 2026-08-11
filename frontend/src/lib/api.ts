@@ -53,6 +53,9 @@ export const api = {
     httpsCallable<string, { ok: boolean; removedChunks: number }>(functions, 'adminDeleteDocument')(docId),
   adminGetDocument: (docId: string) =>
     httpsCallable<string, any>(functions, 'adminGetDocument')(docId),
+  // Admin: pipeline de analise do acervo
+  getAcervoPipelineConfig: () => httpsCallable<void, any>(functions, 'getAcervoPipelineConfig')(),
+  saveAcervoPipelineConfig: (config: any) => httpsCallable<any, { ok: boolean; config: any }>(functions, 'saveAcervoPipelineConfig')(config),
   adminReanalyzeDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
 
