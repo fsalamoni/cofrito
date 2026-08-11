@@ -504,6 +504,7 @@ async function runAnalysisInBackground(input: {
         analyzedAt: FieldValue.serverTimestamp(),
         analysisVersion: 1,
         analysisLatencyMs: result.totalLatencyMs,
+        analysisTokens: result.tokens,
       },
       { merge: true },
     )

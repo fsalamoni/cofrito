@@ -1,13 +1,16 @@
 /**
- * Acervo Analyzer — pipeline de analise automatica de documentos do acervo.
+ * Acervo Analyzer — analise automatica de documentos do acervo via LLM.
  *
- * 3 agentes LLM que rodam em PARALELO:
- *  1. Classificador — natureza, area_direito, assuntos, tipo_documento, contexto
- *  2. Ementa — tipo, assunto, sintese, areas, topicos, conclusao, keywords
- *  3. Pontos Relevantes — key_points[], reusable_content
+ * ARQUITETURA: agente unico com 3 skills (classification + ementa + keyPoints)
+ * executadas em UMA UNICA chamada LLM, retornando JSON estruturado.
+ *
+ * Por que agente unico (em vez de 3 agentes paralelos)?
+ *  - 1 round-trip a API (em vez de 3) = ~3x menos latencia
+ *  - texto enviado 1 vez = ~3x menos tokens de input
+ *  - 1 cadeia de raciocinio coerente (em vez de 3 independentes que podem contradizer)
+ *  - usa o LLM config JA CARREGADO (do configToUse global do admin)
  *
  * Porta os prompts da Lexio (https://github.com/fsalamoni/Lexio).
- * Os agentes usam o LLM config JÁ CARREGADO (sem novo load de API).
  */
 import { logger } from 'firebase-functions'
 import { generateWithProvider, type LLMConfigLike } from './llm-providers'
@@ -48,19 +51,34 @@ export interface AcervoAnalyzerInput {
   llmConfig: LLMConfigLike
 }
 
+export interface AcervoAnalysisResult {
+  classification: Classification
+  ementa: Ementa
+  keyPoints: KeyPoints
+  /** Latencia total (incluindo retry se houver) */
+  totalLatencyMs: number
+  /** Tokens consumidos (input + output) */
+  tokens: { input: number; output: number; total: number }
+}
+
 // ── Constants ──────────────────────────────────────────────────────────
 
-const MAX_SOURCE_CHARS = 8000  // mesmo da Lexio
+const MAX_SOURCE_CHARS = 12000  // aumentado: agora envia 1 vez para 3 skills
 const NATUREZA_VALUES: Natureza[] = ['consultivo', 'executorio', 'transacional', 'negocial', 'doutrinario', 'decisorio']
 
-// ── Prompts (port da Lexio) ────────────────────────────────────────────
+// ── Prompt do agente unificado (3 skills em 1 chamada) ─────────────────
 
-const CLASSIFICADOR_SYSTEM = [
-  'Você é um classificador especializado em documentos jurídicos.',
-  'Sua tarefa é gerar tags de classificação estruturadas para indexação e busca.',
+const UNIFIED_SYSTEM_PROMPT = [
+  'Você é um analista jurídico especializado. Sua tarefa é analisar o documento fornecido',
+  'e gerar TRÊS produtos de uma só vez, em um único JSON estruturado:',
+  '',
+  '═══════════════════════════════════════════════════════════════════',
+  'SKILL 1: CLASSIFICAÇÃO',
+  '═══════════════════════════════════════════════════════════════════',
+  'Tags estruturadas para indexação e busca do documento.',
   '',
   '<categorias_natureza>',
-  'Classifique o documento em UMA das seguintes naturezas:',
+  'Escolha EXATAMENTE UMA natureza:',
   '- "consultivo": Documentos de emissão de opinião (parecer, informativo, manifestação, nota técnica, consulta)',
   '- "executorio": Documentos de movimentação processual ativa (petição inicial, denúncia, recurso, contrarrazões, impugnação, agravo)',
   '- "transacional": Documentos de acordo ou transação (ANPC, ANPP, TAC, acordo processual, termo de compromisso)',
@@ -69,271 +87,217 @@ const CLASSIFICADOR_SYSTEM = [
   '- "decisorio": Documentos de atos decisórios (sentença, acórdão, jurisprudência, despacho, decisão interlocutória)',
   '</categorias_natureza>',
   '',
-  '<formato>',
-  'Responda APENAS com JSON puro (sem markdown), no formato:',
-  '{',
-  '  "natureza": "consultivo|executorio|transacional|negocial|doutrinario|decisorio",',
-  '  "area_direito": ["Direito Administrativo", "Direito Constitucional"],',
-  '  "assuntos": ["Licitação", "Contratação direta", "Dispensa de licitação"],',
-  '  "tipo_documento": "Parecer",',
-  '  "contexto": ["Município celebrou contrato sem licitação", "Empresa questionou dispensa"]',
-  '}',
-  '</formato>',
+  '═══════════════════════════════════════════════════════════════════',
+  'SKILL 2: EMENTA',
+  '═══════════════════════════════════════════════════════════════════',
+  'Ementa estruturada para indexação rápida e busca por keyword.',
   '',
-  'REGRAS:',
-  '- "natureza": Deve ser EXATAMENTE um dos 6 valores acima.',
-  '- "area_direito": Liste 1 a 5 áreas do direito relacionadas ao conteúdo.',
-  '- "assuntos": Liste 2 a 8 matérias/temas objeto da fundamentação do documento.',
-  '- "tipo_documento": Identifique o tipo específico do documento (ex: Parecer, Petição inicial, Sentença, TAC, Contrato, etc.).',
-  '- "contexto": Liste 1 a 5 circunstâncias fáticas tratadas no caso.',
+  '═══════════════════════════════════════════════════════════════════',
+  'SKILL 3: PONTOS RELEVANTES',
+  '═══════════════════════════════════════════════════════════════════',
+  'Pontos relevantes e trecho citável para reuso em outras análises.',
+  '',
+  '═══════════════════════════════════════════════════════════════════',
+  'FORMATO DE SAÍDA',
+  '═══════════════════════════════════════════════════════════════════',
+  'Responda APENAS com JSON puro (sem markdown, sem preâmbulo), exatamente:',
+  '{',
+  '  "classification": {',
+  '    "natureza": "consultivo|executorio|transacional|negocial|doutrinario|decisorio",',
+  '    "area_direito": ["Direito Administrativo", "Direito Constitucional"],',
+  '    "assuntos": ["Licitação", "Dispensa de licitação"],',
+  '    "tipo_documento": "Parecer",',
+  '    "contexto": ["Município celebrou contrato sem licitação"]',
+  '  },',
+  '  "ementa": {',
+  '    "tipo": "Parecer|Petição|ACP|Sentença|Recurso|Outro",',
+  '    "assunto": "Tema principal em 1-2 palavras",',
+  '    "sintese": "Síntese do caso em 1-2 frases curtas",',
+  '    "areas": ["Direito Administrativo"],',
+  '    "topicos": ["Súmula Vinculante 13"],',
+  '    "conclusao": "Conclusão em 1 frase",',
+  '    "keywords": ["nepotismo", "cargo político", "SV 13"]',
+  '  },',
+  '  "key_points": {',
+  '    "items": ["Ponto 1 em 1 frase", "Ponto 2 em 1 frase", "Ponto 3 em 1 frase"],',
+  '    "reusable_content": "Trecho citável (1-3 parágrafos, 200-1500 chars, preserve linguagem original)"',
+  '  }',
+  '}',
+  '',
+  '═══════════════════════════════════════════════════════════════════',
+  'REGRAS GERAIS',
+  '═══════════════════════════════════════════════════════════════════',
+  '- classification.natureza: EXATAMENTE um dos 6 valores acima (sem variações).',
+  '- classification.area_direito: 1 a 5 áreas.',
+  '- classification.assuntos: 2 a 8 matérias/temas objeto da fundamentação.',
+  '- classification.tipo_documento: tipo específico (ex: Parecer, Petição inicial, Sentença, TAC, Contrato).',
+  '- classification.contexto: 1 a 5 circunstâncias fáticas.',
+  '- ementa.assunto: CURTO (1-2 palavras), ideal para busca rápida.',
+  '- ementa.keywords: TODAS as palavras relevantes para busca, incluindo sinônimos (mín 5, máx 25).',
+  '- key_points.items: 3 a 8 pontos OBJETIVOS e CURTOS (1 frase cada).',
+  '- key_points.reusable_content: copie trechos LITERAIS do documento (200-1500 chars).',
+  '',
+  'IMPORTANTE: Faça tudo em uma única cadeia de raciocínio. Os 3 produtos devem ser',
+  'CONSISTENTES entre si (a ementa deve refletir a classification, os keywords devem',
+  'cobrir os assuntos, etc).',
 ].join('\n')
 
-const EMENTA_SYSTEM = [
-  'Você é um indexador de documentos jurídicos.',
-  'Sua tarefa é gerar uma ementa estruturada para indexação e busca.',
-  '',
-  '<formato>',
-  'Responda APENAS com JSON puro (sem markdown), no formato:',
-  '{',
-  '  "tipo": "Parecer|Petição|ACP|Sentença|Recurso|Outro",',
-  '  "assunto": "Tema principal em 1-2 palavras (ex: Nepotismo, Licitação, Improbidade)",',
-  '  "sintese": "Síntese do caso em 1-2 frases curtas",',
-  '  "areas": ["Direito Administrativo", "Direito Constitucional"],',
-  '  "topicos": ["Súmula Vinculante 13", "Princípios da Administração", "União Estável"],',
-  '  "conclusao": "Conclusão em 1 frase",',
-  '  "keywords": ["nepotismo", "cargo político", "união estável", "súmula vinculante 13"]',
-  '}',
-  '</formato>',
-  '',
-  'IMPORTANTE: As keywords devem incluir TODAS as palavras-chave relevantes para busca,',
-  'incluindo sinônimos e termos relacionados. Mínimo 5, máximo 20 keywords.',
-].join('\n')
-
-const KEYPOINTS_SYSTEM = [
-  'Você é um analista jurídico especializado em identificar pontos relevantes.',
-  'Sua tarefa é analisar o documento e gerar:',
-  '  1. key_points: lista de 3-8 pontos RELEVANTES tratados no documento (frases curtas, objetivas)',
-  '  2. reusable_content: trecho CITÁVEL (1-3 parágrafos) que pode ser reutilizado em outras análises',
-  '',
-  '<formato>',
-  'Responda APENAS com JSON puro (sem markdown), no formato:',
-  '{',
-  '  "key_points": ["Ponto 1 em 1 frase", "Ponto 2 em 1 frase", "Ponto 3 em 1 frase"],',
-  '  "reusable_content": "Trecho citável do documento (1-3 parágrafos preservando a linguagem original)"',
-  '}',
-  '</formato>',
-  '',
-  'REGRAS:',
-  '- key_points: cada ponto deve ser OBJETIVO e CURTO (1 frase). Foque nos aspectos mais relevantes para indexação.',
-  '- reusable_content: copie trechos LITERAIS do documento (preserve a linguagem). Use entre 200 e 1500 caracteres.',
-].join('\n')
-
-// ── Funções principais ─────────────────────────────────────────────────
+// ── Funcao principal (orquestra 1 chamada) ─────────────────────────────
 
 /**
- * Classifica o documento (natureza, área, assuntos, tipo, contexto).
+ * Roda a analise completa em UMA chamada LLM (3 skills em paralelo dentro do prompt).
+ * Retorna {classification, ementa, keyPoints} ou defaults se o LLM falhar.
  */
-export async function classifyAcervoDoc(input: AcervoAnalyzerInput): Promise<Classification> {
-  const sourceText = input.text.slice(0, MAX_SOURCE_CHARS)
-  const userPrompt = `Arquivo: ${input.fileName}\n\n<texto>\n${sourceText}\n</texto>\n\nGere as tags de classificação para este documento.`
-
-  const result = await generateWithProvider({
-    systemPrompt: CLASSIFICADOR_SYSTEM,
-    messages: [{ role: 'user', content: userPrompt }],
-    config: { ...input.llmConfig, maxTokens: 800, temperature: 0.1 },
-  })
-
-  const parsed = tryParseJsonObject<{
-    natureza?: string
-    area_direito?: string[]
-    assuntos?: string[]
-    tipo_documento?: string
-    contexto?: string[]
-  }>(result.content, 'classificador')
-
-  if (!parsed.ok) {
-    return getDefaultClassification()
-  }
-
-  const naturezaCandidate = parsed.value.natureza as Natureza | undefined
-  const natureza: Natureza = naturezaCandidate && NATUREZA_VALUES.includes(naturezaCandidate)
-    ? naturezaCandidate
-    : 'consultivo'
-
-  return {
-    natureza,
-    areaDireito: parsed.value.area_direito || [],
-    assuntos: parsed.value.assuntos || [],
-    tipoDocumento: parsed.value.tipo_documento || '',
-    contexto: parsed.value.contexto || [],
-  }
-}
-
-/**
- * Gera ementa estruturada (tipo, assunto, síntese, áreas, tópicos, conclusão, keywords).
- */
-export async function generateEmentaForAcervo(input: AcervoAnalyzerInput): Promise<Ementa> {
-  const sourceText = input.text.slice(0, MAX_SOURCE_CHARS)
-  const userPrompt = `Arquivo: ${input.fileName}\n\n<texto>\n${sourceText}\n</texto>\n\nGere a ementa e keywords para este documento.`
-
-  const result = await generateWithProvider({
-    systemPrompt: EMENTA_SYSTEM,
-    messages: [{ role: 'user', content: userPrompt }],
-    config: { ...input.llmConfig, maxTokens: 1000, temperature: 0.1 },
-  })
-
-  const parsed = tryParseJsonObject<{
-    tipo?: string
-    assunto?: string
-    sintese?: string
-    areas?: string[]
-    topicos?: string[]
-    conclusao?: string
-    keywords?: string[]
-  }>(result.content, 'ementa')
-
-  if (!parsed.ok) {
-    return getDefaultEmenta()
-  }
-
-  // Extrair keywords tambem do filename
-  const filenameKeywords = input.fileName
-    .replace(/^\d{8}\s*-\s*/, '')  // remove YYYYMMDD - prefix
-    .replace(/\.docx?$/i, '')
-    .split(/[.\s,;]+/)
-    .filter(w => w.length > 2)
-    .map(w => w.toLowerCase())
-
-  return {
-    tipo: parsed.value.tipo || 'Outro',
-    assunto: parsed.value.assunto || '',
-    sintese: parsed.value.sintese || '',
-    areas: parsed.value.areas || [],
-    topicos: parsed.value.topicos || [],
-    conclusao: parsed.value.conclusao || '',
-    keywords: Array.from(new Set([...(parsed.value.keywords || []), ...filenameKeywords])).slice(0, 30),
-  }
-}
-
-/**
- * Extrai pontos relevantes e conteúdo reutilizável.
- */
-export async function extractKeyPointsForAcervo(input: AcervoAnalyzerInput): Promise<KeyPoints> {
-  const sourceText = input.text.slice(0, MAX_SOURCE_CHARS)
-  const userPrompt = `Arquivo: ${input.fileName}\n\n<texto>\n${sourceText}\n</texto>\n\nIdentifique os pontos relevantes e selecione um trecho citável.`
-
-  const result = await generateWithProvider({
-    systemPrompt: KEYPOINTS_SYSTEM,
-    messages: [{ role: 'user', content: userPrompt }],
-    config: { ...input.llmConfig, maxTokens: 1500, temperature: 0.1 },
-  })
-
-  const parsed = tryParseJsonObject<{
-    key_points?: string[]
-    reusable_content?: string
-  }>(result.content, 'keypoints')
-
-  if (!parsed.ok) {
-    return { items: [], reusableContent: '' }
-  }
-
-  return {
-    items: (parsed.value.key_points || []).slice(0, 8),
-    reusableContent: (parsed.value.reusable_content || '').slice(0, 2000),
-  }
-}
-
-// ── Orquestrador (roda em background) ──────────────────────────────────
-
-export interface AnalyzeResult {
-  classification: Classification
-  ementa: Ementa
-  keyPoints: KeyPoints
-  /** Latência total */
-  totalLatencyMs: number
-  /** Latência individual de cada agente */
-  agentLatencies: { classification: number; ementa: number; keyPoints: number }
-}
-
-/**
- * Roda os 3 agentes em PARALELO. Retorna resultado consolidado.
- * Não lanca erro: cada agente tem fallback (defaults).
- */
-export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<AnalyzeResult> {
+export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<AcervoAnalysisResult> {
   const start = Date.now()
-  logger.info('acervo-analyzer.start', { docId: input.docId, fileName: input.fileName })
+  logger.info('acervo-analyzer.start', {
+    docId: input.docId,
+    fileName: input.fileName,
+    model: input.llmConfig.model,
+  })
 
-  const [classResult, ementaResult, keypointsResult] = await Promise.allSettled([
-    classifyAcervoDoc(input),
-    generateEmentaForAcervo(input),
-    extractKeyPointsForAcervo(input),
-  ])
+  // 1. Preparar input
+  const sourceText = input.text.slice(0, MAX_SOURCE_CHARS)
+  const userPrompt = `Arquivo: ${input.fileName}\n\n<texto>\n${sourceText}\n</texto>\n\nGere a análise estruturada (classification + ementa + key_points) para este documento.`
 
-  const classification = classResult.status === 'fulfilled' ? classResult.value : getDefaultClassification()
-  const ementa = ementaResult.status === 'fulfilled' ? ementaResult.value : getDefaultEmenta()
-  const keyPoints = keypointsResult.status === 'fulfilled' ? keypointsResult.value : { items: [], reusableContent: '' }
+  // 2. UMA chamada LLM
+  let result: { content: string; tokens: { input: number; output: number; total: number } }
+  try {
+    result = await generateWithProvider({
+      systemPrompt: UNIFIED_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userPrompt }],
+      // maxTokens generoso: cobre 3 outputs estruturados
+      config: { ...input.llmConfig, maxTokens: 2000, temperature: 0.1 },
+    })
+  } catch (err) {
+    logger.warn('analyzeAcervoDoc: LLM falhou, retornando defaults', { err: (err as Error).message })
+    return {
+      classification: getDefaultClassification(),
+      ementa: getDefaultEmenta(),
+      keyPoints: { items: [], reusableContent: '' },
+      totalLatencyMs: Date.now() - start,
+      tokens: { input: 0, output: 0, total: 0 },
+    }
+  }
 
-  // Erros são logados mas não interrompem
-  if (classResult.status === 'rejected') logger.warn('classify failed', { err: (classResult.reason as Error).message })
-  if (ementaResult.status === 'rejected') logger.warn('ementa failed', { err: (ementaResult.reason as Error).message })
-  if (keypointsResult.status === 'rejected') logger.warn('keypoints failed', { err: (keypointsResult.reason as Error).message })
+  // 3. Parsear JSON unificado
+  const parsed = tryParseUnifiedJson(result.content)
+  if (!parsed.ok) {
+    logger.warn('analyzeAcervoDoc: JSON invalido, retornando defaults', { error: parsed.error })
+    return {
+      classification: getDefaultClassification(),
+      ementa: getDefaultEmenta(),
+      keyPoints: { items: [], reusableContent: '' },
+      totalLatencyMs: Date.now() - start,
+      tokens: result.tokens,
+    }
+  }
+
+  // 4. Normalizar cada skill
+  const classification = normalizeClassification(parsed.value.classification)
+  const ementa = normalizeEmenta(parsed.value.ementa, input.fileName)
+  const keyPoints = normalizeKeyPoints(parsed.value.key_points)
 
   const totalLatencyMs = Date.now() - start
-  logger.info('acervo-analyzer.done', { docId: input.docId, totalLatencyMs })
+  logger.info('acervo-analyzer.done', {
+    docId: input.docId,
+    totalLatencyMs,
+    tokens: result.tokens.total,
+  })
 
   return {
     classification,
     ementa,
     keyPoints,
     totalLatencyMs,
-    agentLatencies: { classification: 0, ementa: 0, keyPoints: 0 }, // placeholder
+    tokens: result.tokens,
   }
+}
+
+// ── Normalizadores (cada skill) ───────────────────────────────────────
+
+function normalizeClassification(raw: any): Classification {
+  if (!raw || typeof raw !== 'object') return getDefaultClassification()
+  const naturezaCandidate = raw.natureza as Natureza | undefined
+  const natureza: Natureza = naturezaCandidate && NATUREZA_VALUES.includes(naturezaCandidate)
+    ? naturezaCandidate
+    : 'consultivo'
+  return {
+    natureza,
+    areaDireito: Array.isArray(raw.area_direito) ? raw.area_direito.filter((x: unknown) => typeof x === 'string') : [],
+    assuntos: Array.isArray(raw.assuntos) ? raw.assuntos.filter((x: unknown) => typeof x === 'string') : [],
+    tipoDocumento: typeof raw.tipo_documento === 'string' ? raw.tipo_documento : '',
+    contexto: Array.isArray(raw.contexto) ? raw.contexto.filter((x: unknown) => typeof x === 'string') : [],
+  }
+}
+
+function normalizeEmenta(raw: any, fileName: string): Ementa {
+  if (!raw || typeof raw !== 'object') return getDefaultEmenta()
+  // Extrair keywords tambem do filename (reforca busca)
+  const filenameKeywords = fileName
+    .replace(/^\d{8}\s*-\s*/, '')  // remove "YYYYMMDD - " prefix
+    .replace(/\.(docx?|pdf|txt|md)$/i, '')
+    .split(/[.\s,;_\-]+/)
+    .filter(w => w.length > 2)
+    .map(w => w.toLowerCase())
+  const llmKeywords = Array.isArray(raw.keywords)
+    ? raw.keywords.filter((x: unknown) => typeof x === 'string')
+    : []
+  return {
+    tipo: typeof raw.tipo === 'string' ? raw.tipo : 'Outro',
+    assunto: typeof raw.assunto === 'string' ? raw.assunto : '',
+    sintese: typeof raw.sintese === 'string' ? raw.sintese : '',
+    areas: Array.isArray(raw.areas) ? raw.areas.filter((x: unknown) => typeof x === 'string') : [],
+    topicos: Array.isArray(raw.topicos) ? raw.topicos.filter((x: unknown) => typeof x === 'string') : [],
+    conclusao: typeof raw.conclusao === 'string' ? raw.conclusao : '',
+    keywords: Array.from(new Set([...llmKeywords, ...filenameKeywords])).slice(0, 30),
+  }
+}
+
+function normalizeKeyPoints(raw: any): KeyPoints {
+  if (!raw || typeof raw !== 'object') return { items: [], reusableContent: '' }
+  const items = Array.isArray(raw.items)
+    ? raw.items.filter((x: unknown) => typeof x === 'string').slice(0, 8)
+    : []
+  const reusableContent = typeof raw.reusable_content === 'string'
+    ? raw.reusable_content.slice(0, 2000)
+    : ''
+  return { items, reusableContent }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
 function getDefaultClassification(): Classification {
-  return {
-    natureza: 'consultivo',
-    areaDireito: [],
-    assuntos: [],
-    tipoDocumento: '',
-    contexto: [],
-  }
+  return { natureza: 'consultivo', areaDireito: [], assuntos: [], tipoDocumento: '', contexto: [] }
 }
 
 function getDefaultEmenta(): Ementa {
-  return {
-    tipo: 'Outro',
-    assunto: '',
-    sintese: '',
-    areas: [],
-    topicos: [],
-    conclusao: '',
-    keywords: [],
-  }
+  return { tipo: 'Outro', assunto: '', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] }
 }
 
 /**
- * Extrai JSON de um texto que pode ter markdown ou texto adicional.
+ * Extrai JSON do formato unificado {classification, ementa, key_points}.
+ * Tenta multiplas estrategias:
+ *  1. Parse direto
+ *  2. Remover markdown code blocks
+ *  3. Encontrar primeiro { e ultimo }
  */
-function tryParseJsonObject<T>(raw: string, tag: string): { ok: true; value: T } | { ok: false; error: string } {
-  if (!raw) return { ok: false, error: `${tag}: empty response` }
+function tryParseUnifiedJson(raw: string): { ok: true; value: any } | { ok: false; error: string } {
+  if (!raw) return { ok: false, error: 'empty response' }
   let jsonStr = raw.trim()
-  // Remove markdown code blocks
-  const fencedMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fencedMatch) jsonStr = fencedMatch[1].trim()
-  // Encontra o primeiro { e o ultimo }
+  // 1. Remover markdown code blocks
+  const fenced = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenced) jsonStr = fenced[1].trim()
+  // 2. Encontrar primeiro { e ultimo }
   const firstBrace = jsonStr.indexOf('{')
   const lastBrace = jsonStr.lastIndexOf('}')
   if (firstBrace < 0 || lastBrace < 0 || lastBrace < firstBrace) {
-    return { ok: false, error: `${tag}: no JSON object found` }
+    return { ok: false, error: 'no JSON object found' }
   }
   jsonStr = jsonStr.slice(firstBrace, lastBrace + 1)
   try {
-    const parsed = JSON.parse(jsonStr) as T
-    return { ok: true, value: parsed }
+    return { ok: true, value: JSON.parse(jsonStr) }
   } catch (err) {
-    return { ok: false, error: `${tag}: ${(err as Error).message}` }
+    return { ok: false, error: (err as Error).message }
   }
 }
