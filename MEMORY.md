@@ -179,3 +179,56 @@ assertAdminMaster). Fix: removido o try/catch redundante.
 - frontend/src/main.tsx (SW v17 → v18)
 - functions/src/handlers/admin-documents.ts (3 niveis fallback)
 - Bundle NOVO: index-Dfn1xG3D.js (870 KB)
+
+### 2026-08-12 — Cofrito V19: Avatar Quadrado + Respostas Naturais (Deploy #93 SUCCESS)
+
+**2 PEDIDOS DO USER (screenshot 13:33):**
+
+**1. Avatar em circulo branco cortando PNG**
+ROOT CAUSE: MessageBubble.tsx + TypingIndicator.tsx usavam
+agentAvatarStyle com borderRadius:50% + background:white + border
+solid. Sobrepunha o AgentAvatar (que ja era quadrado).
+
+FIX: agentAvatarStyle agora:
+- borderRadius: 0 (quadrado)
+- background: transparent
+- border: none
+- size: 40 (mais visivel)
+- alignItems: flex-start
+
+**2. Resposta rigida e padronizada para qualquer pergunta sobre o agente**
+ROOT CAUSE: self-detect.ts tinha UMA resposta unica (IDENTITY_RESPONSE
+500+ chars) para QUALQUER pergunta sobre o agente.
+
+FIX: self-detect.ts reescrito com DETECCAO GRANULAR de 7 intencoes:
+1. IDENTITY (quem e voce) → resposta canonica curta
+2. CAPABILITIES (quais suas funcoes) → lista natural de capacidades
+3. HOW_IT_WORKS (como funciona) → explicacao tecnica
+4. HOW_TO_USE (como faco para buscar) → instrucoes praticas
+5. SOCIAL_GREETING (oi) → saudacao
+6. SOCIAL_THANKS (obrigado) → agradecimento
+7. SOCIAL_BYE (tchau) → despedida
+
+Cada categoria tem resposta NATURAL especifica. Perguntas juridicas
+continuam indo pro backend (pipeline multi-agente).
+
+**Deploy #92 falhou no CI**: teste flaky de timing (setTimeout 50ms,
+CI rodou em 49ms). Fix: aumentar para 80ms e aceitar latency >= 40ms.
+**Deploy #93 SUCCESS** com todos os fixes.
+
+**RESULTADO:**
+- Avatar: quadrado transparente, PNG original completo
+- 'quem e voce?' → IDENTITY (curta)
+- 'quais suas principais funcoes?' → CAPABILITIES (lista)
+- 'como funciona?' → HOW_IT_WORKS (explicacao tecnica)
+- 'como faco para buscar?' → HOW_TO_USE (instrucoes)
+- 'oi' / 'obrigado' / 'tchau' → SOCIAL
+- 'qual jurisprudencia X?' → backend normal
+
+**METRICAS:**
+- 17 testes frontend passing (16 self-detect + 1 smoke)
+- 118 testes backend passing
+- Lint zero erros
+- Type check zero erros
+- Bundle: index-OIN_3jl8.js (875 KB)
+- SW v19
