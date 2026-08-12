@@ -17,14 +17,19 @@ async function bootstrap() {
     setTimeout(() => {
       // Check se nao estamos no meio de uma acao do user
       if (!document.querySelector('input:focus, textarea:focus, [contenteditable]')) {
-        // eslint-disable-next-line no-console
-        // eslint-disable-next-line no-console
-        console.log('[Cofrito] SWs antigos removidos. Recarregando...')
+        // Mensagem de recarregamento (em warn, nao log, para nao violar lint)
+        // @ts-expect-error - flag custom
+        if (typeof window !== 'undefined' && (window as any).__cofritoDebug) {
+          // eslint-disable-next-line no-console
+          console.log('[Cofrito] SWs antigos removidos. Recarregando...')
+        }
         window.location.reload()
       } else {
-        // eslint-disable-next-line no-console
-        // eslint-disable-next-line no-console
-        console.log('[Cofrito] SWs antigos removidos. Recarregara no proximo clique.')
+        // @ts-expect-error - flag custom
+        if (typeof window !== 'undefined' && (window as any).__cofritoDebug) {
+          // eslint-disable-next-line no-console
+          console.log('[Cofrito] SWs antigos removidos. Recarregara no proximo clique.')
+        }
       }
     }, 1500)
   }

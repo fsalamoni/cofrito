@@ -136,7 +136,7 @@ describe('adminUploadDocument (e2e)', () => {
   })
 
   it('rejeita sem fileName', async () => {
-    const { adminUploadDocument, HttpsError } = await import('./admin-documents')
+    const { adminUploadDocument } = await import('./admin-documents')
     const handler = (adminUploadDocument as any)
     const req = {
       auth: { uid: 'master-admin' },
