@@ -249,11 +249,7 @@ export const adminListDocuments = onCall(
   { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
-    try {
-      await assertAdminMaster(request.auth.uid)
-    } catch (err: any) {
-      throw err  // HttpsError ja
-    }
+    await assertAdminMaster(request.auth.uid)
     const db = getFirestore()
     let snap
     try {
