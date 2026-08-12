@@ -77,3 +77,56 @@ material". A regra #0 do system prompt nao era suficiente.
 - Testes: 118 passing (era 105, +13 do self-detect)
 
 **DEPLOY #85 SUCCESS** - tudo verde.
+
+### 2026-08-12 — Cofrito V17 Definitivo: Fast-Path no FRONTEND (Deploy #87 SUCCESS)
+
+**PROBLEMA PERSISTENTE (3a vez do user pedindo):**
+Mesmo apos os deploys #85 e #86 com fast-path no BACKEND, o bot
+AINDA respondia "Nao encontrei material sobre isso no acervo" para
+"quem e voce?". Screenshot do user mostrava o problema as 12:06.
+
+**ROOT CAUSE PROFUNDA:**
+1. O fast-path no backend (pipeline.ts) ESTAVA CORRETO mas o FRONTEND
+   continuava servindo o bundle antigo (cache do Firebase CDN)
+2. O deploy #86 teve um erro silencioso: "Unable to parse JSON" no
+   final do firebase deploy, mas `|| true` mascarou
+3. Resultado: hosting upload foi feito mas a "finalizing version" falhou
+
+**SOLUCAO DEFINITIVA (padrao Lexio):**
+Mover o fast-path para o FRONTEND (client-side), seguindo o padrao
+do Lexio que faz toda a orquestracao no browser. Assim:
+- Zero dependencia do backend para responder perguntas de identidade
+- Zero latencia (resposta instantanea, < 1ms)
+- Zero custo de LLM
+- Funciona mesmo se o backend estiver lento/com cache
+
+**Arquivos (Deploy #87):**
+- frontend/src/lib/self-detect.ts: espelho do backend, mesmas regex +
+  normalizacao de acentos + IDENTITY_RESPONSE canonica
+- frontend/src/lib/self-detect.test.ts: 13 testes
+- frontend/src/hooks/useChat.ts: ANTES de chamar api.chat, detecta
+  isAboutItselfClient(text). Se sim, adiciona resposta canonica direto
+  no store e retorna. ZERO chamada de rede.
+- SW v17 (era v16)
+- Bundle novo: index-C9JL5Tx8.js (871 KB)
+
+**CUIDADO OPERACIONAL (descoberto agora):**
+Deploy do Firebase Hosting pode falhar silenciosamente com o erro
+"Unable to parse JSON: Unexpected token '<', '<!DOCTYPE'" no final.
+O `|| true` no workflow MASCARAR o erro. Solucao: usar `set -e`
+no script e checar exit codes.
+
+**RESULTADO:**
+- 14 testes frontend passing (era 1 + 13 do self-detect)
+- 118 testes backend passing
+- Lint zero erros
+- Type check zero erros
+- Bundle NOVO em producao (index-C9JL5Tx8.js)
+- SW v17 em producao
+- IDENTITY_RESPONSE canonica no bundle
+
+**COMO TESTAR:**
+1. Hard refresh (Ctrl+Shift+R) - bundle novo index-C9JL5Tx8.js
+2. Login no site
+3. Digitar "quem e voce?" - resposta INSTANTANEA canonica
+4. Sem cache, sem delay, sem chamada de rede
