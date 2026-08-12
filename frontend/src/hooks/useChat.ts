@@ -3,6 +3,7 @@
  */
 import { useCallback } from 'react'
 import { api } from '@/lib/api'
+import { isAboutItselfClient, getIdentityResponseClient } from '@/lib/self-detect'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -44,6 +45,29 @@ export function useChat() {
       }
       addMessage(userMessage)
       setThinking(true)
+
+      // FAST-PATH CLIENT (padrão Lexio): detecta perguntas sobre o próprio agente
+      // e responde IMEDIATAMENTE no client, sem chamada de rede.
+      // Garante resposta instantânea e correta, sem depender do backend.
+      if (isAboutItselfClient(text)) {
+        const identityAnswer = getIdentityResponseClient(false)
+        const assistantMessage: ChatMessage = {
+          id: `msg-${Date.now()}-identity`,
+          conversationId: conversationId || '',
+          role: 'assistant',
+          content: identityAnswer,
+          sources: [],
+          intent: 'simple-question',
+          latencyMs: 0,
+          tokens: { prompt: 0, completion: 0, total: 0 },
+          agentRuns: 0,
+          iterations: 0,
+          createdAt: new Date().toISOString(),
+        }
+        addMessage(assistantMessage)
+        setThinking(false)
+        return
+      }
 
       try {
         // 2. Chama Cloud Function
