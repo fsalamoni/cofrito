@@ -17,7 +17,7 @@ import { textToStructuredJson, serializeStructuredJson } from '../services/docum
 import { analyzeAcervoDoc, type AcervoPipelineFlags } from '../services/acervo-analyzer'
 import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
-import { getStorage } from 'firebase-admin/storage'
+import { getStorage } from '../services/storage'
 import { assertAdminMaster } from '../middleware/auth'
 import { ingestInline } from '../services/ingestion-buffer'
 import { ingestAcervoDoc } from '../services/ingestion-acervo'
@@ -25,7 +25,7 @@ import { ingestAcervoDoc } from '../services/ingestion-acervo'
 // ── Upload de documento ─────────────────────────────────────────────────
 
 export const adminUploadDocument = onCall(
-  { cors: true, timeoutSeconds: 120 },
+  { cors: true, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -45,6 +45,17 @@ export const adminUploadDocument = onCall(
       throw new HttpsError('invalid-argument', 'fileName e contentBase64 são obrigatórios')
     }
 
+    const start = Date.now()
+    logger.info('adminUploadDocument.start', {
+      uid: request.auth.uid,
+      fileName,
+      mimeType,
+      sizeBase64: contentBase64.length,
+    })
+
+    let docId: string | undefined
+    let docRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData> | undefined
+    try {
     const db = getFirestore()
     const storage = getStorage()
     const bucket = storage.bucket()
@@ -54,7 +65,8 @@ export const adminUploadDocument = onCall(
 
     // Gera docId estável baseado no nome do arquivo
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const docId = `uploaded-${Date.now()}-${safeName.replace(/\.[^.]+$/, '').slice(0, 64)}`
+    docId = `uploaded-${Date.now()}-${safeName.replace(/\.[^.]+$/, '').slice(0, 64)}`
+    docRef = db.doc(`corpus/uploaded/${docId}`)
     const path = `corpus/uploaded/${docId}/${safeName}`
 
     // Upload para Storage
@@ -71,7 +83,6 @@ export const adminUploadDocument = onCall(
     })
 
     // Cria/atualiza documento no Firestore (corpus/uploaded) — placeholder
-    const docRef = db.doc(`corpus/uploaded/${docId}`)
     const inferTitle = title || safeName.replace(/\.[^.]+$/, '')
     const inferredType = type ?? inferType(fileName)
     await docRef.set(
@@ -239,6 +250,35 @@ export const adminUploadDocument = onCall(
       compressionRatio: structured.meta.compressionRatio,
       chunksCreated: ingestResult.chunksCreated,
       message: `Documento salvo e estruturado em JSON v1 (${structured.meta.paragraphs} paragrafos, ${Math.round(structured.meta.compressionRatio * 100)}% compressao). Análise automatica sera iniciada na Fase 2b.`,
+    }
+    } catch (err: any) {
+      // Error handling robusto: log detalhado + throw HttpsError explicito
+      const errMsg = err?.message ?? String(err)
+      const errStack = err?.stack ?? ''
+      logger.error('adminUploadDocument.error', {
+        uid: request.auth.uid,
+        fileName,
+        mimeType,
+        sizeBase64: contentBase64.length,
+        errorMessage: errMsg,
+        errorStack: errStack?.slice(0, 1500),
+        durationMs: Date.now() - start,
+      })
+      // Tentar marcar o doc como erro, se possivel
+      try {
+        if (docId && docRef) {
+          await docRef.set(
+            {
+              status: 'erro_upload',
+              ingestError: errMsg,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+          )
+        }
+      } catch { /* ignora */ }
+      // Re-throw como HttpsError
+      throw new HttpsError('internal', `Falha no upload/processamento: ${errMsg}`)
     }
   },
 )

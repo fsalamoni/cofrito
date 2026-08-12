@@ -21,7 +21,7 @@ const APP_NAME = '__FIREBASE_FUNCTIONS_SDK__'
 
 let _app: adminApp.App | undefined
 
-function getOrCreateApp(): adminApp.App {
+export function getOrCreateApp(): adminApp.App {
   if (_app) return _app
   // Tenta pegar a app default primeiro
   try {
