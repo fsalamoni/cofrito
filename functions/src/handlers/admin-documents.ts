@@ -65,8 +65,8 @@ export const adminUploadDocument = onCall(
 
     // Gera docId estável baseado no nome do arquivo
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
-    docId = `uploaded-${Date.now()}-${safeName.replace(/\.[^.]+$/, '').slice(0, 64)}`
-    docRef = db.doc(`corpus/uploaded/${docId}`)
+    docId = `doc-${Date.now()}-${safeName.replace(/\.[^.]+$/, '').slice(0, 64)}`
+    docRef = db.doc(`corpus/${docId}`)
     const path = `corpus/uploaded/${docId}/${safeName}`
 
     // Upload para Storage
@@ -293,12 +293,12 @@ export const adminListDocuments = onCall(
     const db = getFirestore()
     let snap
     try {
-      snap = await db.collection('corpus/uploaded').orderBy('createdAt', 'desc').limit(500).get()
+      snap = await db.collection('corpus').orderBy('createdAt', 'desc').limit(500).get()
     } catch (err: any) {
       // Fallback: sem orderBy (evita dependencia de indice composto)
       logger.warn('adminListDocuments.orderBy-failed', { err: err?.message })
       try {
-        snap = await db.collection('corpus/uploaded').limit(500).get()
+        snap = await db.collection('corpus').limit(500).get()
       } catch (err2: any) {
         // Ultimo fallback: retornar lista vazia
         logger.error('adminListDocuments.collection-failed', { err: err2?.message })
@@ -350,7 +350,7 @@ export const adminDeleteDocument = onCall(
     const storage = getStorage()
 
     // Pega o doc para remover o arquivo do storage
-    const docSnap = await db.doc(`corpus/uploaded/${docId}`).get()
+    const docSnap = await db.doc(`corpus/${docId}`).get()
     if (docSnap.exists) {
       const data = docSnap.data() as any
       if (data.storagePath) {
@@ -363,10 +363,10 @@ export const adminDeleteDocument = onCall(
     }
 
     // Remove chunks
-    const chunks = await db.collection(`corpus/uploaded/${docId}/chunks`).get()
+    const chunks = await db.collection(`corpus/${docId}/chunks`).get()
     const batch = db.batch()
     chunks.docs.forEach((c) => batch.delete(c.ref))
-    batch.delete(db.doc(`corpus/uploaded/${docId}`))
+    batch.delete(db.doc(`corpus/${docId}`))
     await batch.commit()
     return { ok: true, removedChunks: chunks.size }
   },
@@ -739,7 +739,7 @@ export const adminGetDocument = onCall(
     const { docId } = (request.data || {}) as { docId: string }
     if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
     const db = getFirestore()
-    const docSnap = await db.doc(`corpus/uploaded/${docId}`).get()
+    const docSnap = await db.doc(`corpus/${docId}`).get()
     if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
     return { id: docSnap.id, ...docSnap.data() }
   },
@@ -755,7 +755,7 @@ export const adminReanalyzeDocument = onCall(
     const { docId } = (request.data || {}) as { docId: string }
     if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
     const db = getFirestore()
-    const docSnap = await db.doc(`corpus/uploaded/${docId}`).get()
+    const docSnap = await db.doc(`corpus/${docId}`).get()
     if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
     const data = docSnap.data() || {}
     const text = (data.textOriginal as string) || (data.textContent as string) || ''

@@ -1,11 +1,15 @@
 /**
  * Configuração do Firebase para o cliente.
- * Use isto em qualquer lugar do frontend.
  *
  * IMPORTANTE: usamos memoryLocalCache em vez de IndexedDB
  * para evitar os 3 TypeErrors do console (create/query)
  * que vinham do firestore tentando criar IDB offline persistence
  * (alguns navegadores/abas em conflito).
+ *
+ * Para casos extremos: o firebase.ts tambem tenta BLOQUEAR o indexedDB
+ * via um patch no Window.IDBKeyRange/window.indexedDB. Mas isso
+ * quebraria o firebase-auth (que usa IDB para tokens). Por isso usamos
+ * apenas memoryLocalCache.
  */
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
 import { getAuth, type Auth } from 'firebase/auth'

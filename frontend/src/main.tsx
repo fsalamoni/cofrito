@@ -4,24 +4,47 @@ import App from './App'
 import './styles/index.css'
 import { nukeAllCaches } from './lib/sw-cleanup'
 
+// ── IDB Killer - patch que desabilita IndexedDB ANTES do Firestore ────────
+// Quebra o cache offline do Firestore sem quebrar o firebase-auth.
+// Resolve os 3 TypeErrors "reading query/create" que aparecem quando
+// o Firestore tenta criar IDB offline persistence em um navegador que
+// nao permite (modo privado, multi-tab, etc).
+if (typeof window !== 'undefined') {
+  const w = window as unknown as { __idbKilled?: boolean }
+  if (!w.__idbKilled) {
+    w.__idbKilled = true
+    try {
+      const OriginalOpen = window.indexedDB.open.bind(window.indexedDB)
+      window.indexedDB.open = function (name: string, version?: number) {
+        if (typeof name === 'string' && name.includes('firestore')) {
+          // Retornar request com erro para forcar o firestore a desistir do IDB
+          const request = OriginalOpen('__idb_blocked__', 1)
+          setTimeout(() => {
+            try {
+              const event = new Event('error')
+              Object.defineProperty(request, 'error', {
+                value: { name: 'VersionError', message: 'IDB blocked' },
+              })
+              request.dispatchEvent(event)
+            } catch { /* best effort */ }
+          }, 0)
+          return request
+        }
+        return OriginalOpen(name, version)
+      } as IDBFactory['open']
+    } catch { /* best effort */ }
+  }
+}
+
 // ── Limpeza AGRESSIVA de Service Workers e caches antigos ─────────────────
-// Resolve o problema de "deploy passou mas o navegador mostra bundle velho".
-// - Desregistra TODOS os Service Workers (mesmo os do Firebase Messaging)
-// - Limpa TODOS os caches antigos
-// - Se removeu algo, recarrega a pagina UMA vez (para o proximo load ser limpo)
 async function bootstrap() {
   const removed = await nukeAllCaches()
-  // Se removeu SW ou cache, forca reload APOS o React montar
-  // (deferido para o user poder interagir; reload imediato pode interromper UX)
   if (removed && typeof window !== 'undefined') {
     setTimeout(() => {
-      // Check se nao estamos no meio de uma acao do user
       if (!document.querySelector('input:focus, textarea:focus, [contenteditable]')) {
-        // Marca no sessionStorage que precisa reload
-        // O reload automatico so acontece se nao ha interacao
-        const w = window as unknown as { __cofritoReloading?: boolean }
-        if (!w.__cofritoReloading) {
-          w.__cofritoReloading = true
+        const w2 = window as unknown as { __cofritoReloading?: boolean }
+        if (!w2.__cofritoReloading) {
+          w2.__cofritoReloading = true
           window.location.reload()
         }
       }
