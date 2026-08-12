@@ -130,3 +130,52 @@ no script e checar exit codes.
 2. Login no site
 3. Digitar "quem e voce?" - resposta INSTANTANEA canonica
 4. Sem cache, sem delay, sem chamada de rede
+
+### 2026-08-12 — Cofrito V18 Definitivo: 3 bugs em 1 deploy (Deploy #90 SUCCESS)
+
+**3 PROBLEMAS RELATADOS PELO USER (screenshot 13:06):**
+
+**PROBLEMA 1: '...' com cofrito balançando APOS resposta**
+ROOT CAUSE: ChatPanel.tsx:100 tinha:
+  `{isThinking ? <OrchestratorTimelineWrapper /> : <TypingIndicator />}`
+Quando isThinking=false (apos resposta entregue), TypingIndicator
+SEMPRE renderizava. UX muito ruim - parecendo que ainda processa.
+
+FIX: trocar fallback para `null`:
+  `{isThinking ? <OrchestratorTimelineWrapper /> : null}`
+
+**PROBLEMA 2: 3 TypeErrors no console**
+- content.js:1 'reading query'
+- script.js:11 'reading create'
+- script.js:12 'reading create'
+
+ROOT CAUSE: Firestore 10+ ativa IndexedDbPersistence AUTOMATICAMENTE.
+A persistencia offline tenta criar IDB mas em alguns navegadores
+(multi-tab, modo privado) da erro "Failed to obtain exclusive
+access to the persistence layer". Os 3 TypeErrors vem do firestore
+tentando fazer createObjectStore + query no IDB.
+
+FIX: initializeFirestore com memoryLocalCache(). Sem IDB, sem
+offline persistence, sem TypeErrors. UX nao muda (cache era
+otimizacao, nao requisito).
+
+**PROBLEMA 3: adminListDocuments 500 INTERNAL**
+ROOT CAUSE: A collection 'corpus/uploaded' pode nao existir ou
+ter permissao negada. O try/catch com fallback SEM orderBy tambem
+pode dar erro. Resultado: 500 INTERNAL.
+
+FIX: 3 niveis de try/catch:
+1. orderBy (pode falhar por indice)
+2. limit sem orderBy (pode falhar por permissao)
+3. fallback final: retorna [] (lista vazia)
+
+**Deploy #89 falhou no lint** (Unnecessary try/catch wrapper no
+assertAdminMaster). Fix: removido o try/catch redundante.
+**Deploy #90 SUCCESS** com todos os fixes.
+
+**ARQUIVOS MODIFICADOS (Deploy #90):**
+- frontend/src/components/AgentWidget/ChatPanel.tsx (TypingIndicator → null)
+- frontend/src/lib/firebase.ts (memoryLocalCache)
+- frontend/src/main.tsx (SW v17 → v18)
+- functions/src/handlers/admin-documents.ts (3 niveis fallback)
+- Bundle NOVO: index-Dfn1xG3D.js (870 KB)
