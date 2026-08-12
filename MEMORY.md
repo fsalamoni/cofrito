@@ -289,3 +289,64 @@ no-unused-disable). **Deploy #97 SUCCESS** apos correcoes.
 - Type check zero erros
 - Bundle novo: index-2lWf16m7.js (875 KB)
 - SW v20
+
+### 2026-08-12 — Cofrito V21: Schema Correto corpus/{docId} + IDB Killer (Deploy #99 SUCCESS)
+
+**PROBLEMA 1: adminUploadDocument 500 (todos os uploads)**
+ROOT CAUSE: O codigo usava `db.doc('corpus/uploaded/{docId}')` que tem
+3 segmentos. No Firestore, um path IMPAR de segmentos = COLLECTION,
+nao document. Resultado: "Your path does not contain an even
+number of components."
+
+O schema CORRETO (segue ingestion-acervo.ts) eh:
+  - corpus/{docId} (2 segmentos = document)
+  - corpus/{docId}/chunks/{chunkId} (4 segmentos = document)
+
+FIX no admin-documents.ts:
+  - docRef = db.doc(`corpus/${docId}`)  (era corpus/uploaded/...)
+  - snap = db.collection(`corpus`).orderBy(...)  (era corpus/uploaded)
+  - chunks = db.collection(`corpus/${docId}/chunks`)  (ja estava)
+  - batch.delete(db.doc(`corpus/${docId}`))  (era corpus/uploaded/...)
+  - Todos os outros db.doc(`corpus/uploaded/...`) trocados
+
+TAMBEM: docId simplificado de 'uploaded-...' para 'doc-...'
+
+**PROBLEMA 2: 3 TypeErrors no console (reading 'query'/'create')**
+ROOT CAUSE: Bundle cacheado do firestore tenta usar IndexedDbPersistence.
+Mesmo com memoryLocalCache no firebase.ts, o bundle ANTIGO (cacheado
+no SW do user) ainda tenta usar IDB.
+
+FIX: IDB Killer (frontend/src/main.tsx)
+  - Patch inline que DESABILITA IndexedDB ANTES do firestore ser carregado
+  - Monkey-patch de window.indexedDB.open para forcar erro em databases
+    que contem "firestore" no nome
+  - firebase-auth continua funcionando (nao eh afetado pelo patch)
+  - Firestore desiste de usar IDB persistence
+
+**ESTRUTURA CORRETA NO FIRESTORE:**
+  - corpus/{docId}                          # metadata + textOriginal + textContent(JSON)
+  - corpus/{docId}/chunks/{chunkId}         # chunks para busca
+  - corpus/{docId} tem tambem:
+    - classification (do analyzer)
+    - ementa (do analyzer)
+    - keyPoints (do analyzer)
+    - analyzedAt
+    - storagePath, etc
+
+**METRICAS:**
+- 122 testes backend passing
+- 17 testes frontend
+- Lint zero erros
+- Bundle novo: index-C5a72XPg.js (876 KB)
+- SW v21
+
+**DURANTE UPLOAD, o codigo agora:**
+1. Decodifica base64
+2. Upload para Storage: corpus/uploaded/{docId}/{safeName}
+3. Cria doc no Firestore: corpus/{docId} (com metadata inicial)
+4. Extrai texto do PDF/DOCX
+5. Converte para JSON estruturado (textContent)
+6. Atualiza doc com textOriginal + textContent + meta
+7. Chama ingestInline (chunks + embeddings)
+8. Chama runAnalysisInBackground (void) - gera classification/ementa/keyPoints via LLM
+9. Re-indexa no corpus com metadados estruturados (pre-filtro keywords)
