@@ -17,18 +17,12 @@ async function bootstrap() {
     setTimeout(() => {
       // Check se nao estamos no meio de uma acao do user
       if (!document.querySelector('input:focus, textarea:focus, [contenteditable]')) {
-        // Mensagem de recarregamento (em warn, nao log, para nao violar lint)
-        // @ts-expect-error - flag custom
-        if (typeof window !== 'undefined' && (window as any).__cofritoDebug) {
-          // eslint-disable-next-line no-console
-          console.log('[Cofrito] SWs antigos removidos. Recarregando...')
-        }
-        window.location.reload()
-      } else {
-        // @ts-expect-error - flag custom
-        if (typeof window !== 'undefined' && (window as any).__cofritoDebug) {
-          // eslint-disable-next-line no-console
-          console.log('[Cofrito] SWs antigos removidos. Recarregara no proximo clique.')
+        // Marca no sessionStorage que precisa reload
+        // O reload automatico so acontece se nao ha interacao
+        const w = window as unknown as { __cofritoReloading?: boolean }
+        if (!w.__cofritoReloading) {
+          w.__cofritoReloading = true
+          window.location.reload()
         }
       }
     }, 1500)
