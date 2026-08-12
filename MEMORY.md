@@ -232,3 +232,60 @@ CI rodou em 49ms). Fix: aumentar para 80ms e aceitar latency >= 40ms.
 - Type check zero erros
 - Bundle: index-OIN_3jl8.js (875 KB)
 - SW v19
+
+### 2026-08-12 — Cofrito V20: Storage shim + SW cleanup agressivo (Deploy #97 SUCCESS)
+
+**PROBLEMAS RELATADOS PELO USER (screenshot 15:03):**
+1. 3 TypeErrors no console (reading 'query'/'create')
+2. adminUploadDocument 500 (todos os uploads falham)
+
+**ROOT CAUSE #2 (adminUploadDocument 500):**
+O getStorage() do firebase-admin SEM app falha em Cloud Functions Gen 2:
+  'The default Firebase app does not exist. Make sure you call
+   initializeApp() before using any of the Firebase services.'
+
+O firestore.ts ja tinha shim para getFirestore (criado em sessoes
+anteriores), MAS o storage NAO TINHA SHIM. O upload batia 500 no
+getStorage() na linha 60 (antes de qualquer upload real).
+
+**FIX storage shim (functions/src/services/storage.ts):**
+  export function getStorage(): Storage {
+    const app = getOrCreateApp()  // do firestore.ts
+    return adminGetStorage(app)
+  }
+
+E trocar em admin-documents.ts:
+  - import { getStorage } from 'firebase-admin/storage'
+  + import { getStorage } from '../services/storage'
+
+**ROOT CAUSE #1 (3 TypeErrors):**
+O user tem SW/cache antigo mesmo apos hard refresh. O nukeOldCaches
+anterior so removia SWs com URL 'sw=v19', mas Firebase Messaging e
+outros SWs nao batem. Cache do firestore IDB persistence vem do
+bundle antigo que NAO tem memoryLocalCache.
+
+**FIX sw-cleanup agressivo (frontend/src/lib/sw-cleanup.ts):**
+  1. Desregistra TODOS os SWs (exceto o atual com sw=VERSION)
+  2. Limpa TODOS os caches (exceto os da versao atual)
+  3. Se removeu algo: defer 1.5s + reload automatico
+     (so se nao ha input/textarea focado, para nao interromper user)
+  4. Usa flag window.__cofritoReloading para evitar loop
+
+**OUTROS FIXES:**
+- adminUploadDocument timeout: 120s -> 540s (max Gen 2) + 1GiB memoria
+- adminUploadDocument: try/catch geral com logger.error detalhado
+  (uid, fileName, size, errorMessage, errorStack, durationMs)
+- Marca doc como 'erro_upload' no Firestore em caso de falha
+- 4 testes novos do adminUploadDocument (sucesso, texto vazio,
+  sem fileName, sem auth)
+
+**Deploy #102 e #103 falharam no lint** (HttpsError unused + console
+no-unused-disable). **Deploy #97 SUCCESS** apos correcoes.
+
+**METRICAS FINAIS:**
+- 122 testes backend (era 118, +4 do adminUploadDocument)
+- 17 testes frontend
+- Lint zero warnings
+- Type check zero erros
+- Bundle novo: index-2lWf16m7.js (875 KB)
+- SW v20
