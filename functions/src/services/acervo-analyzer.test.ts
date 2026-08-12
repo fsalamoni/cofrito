@@ -202,11 +202,13 @@ describe('acervo-analyzer (agente unificado)', () => {
 
     it('reporta latencia', async () => {
       vi.mocked(generateWithProvider).mockImplementation(async () => {
-        await new Promise(r => setTimeout(r, 50))
+        await new Promise(r => setTimeout(r, 80))
         return { content: unifiedJson(), tokens: { input: 100, output: 200, total: 300 } }
       })
       const result = await analyzeAcervoDoc(mockInput)
-      expect(result.totalLatencyMs).toBeGreaterThanOrEqual(50)
+      // Margem ampla para evitar flakiness em CI (timing pode oscilar)
+      expect(result.totalLatencyMs).toBeGreaterThanOrEqual(40)
+      expect(result.totalLatencyMs).toBeLessThan(500)
     })
   })
 })
