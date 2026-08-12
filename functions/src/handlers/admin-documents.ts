@@ -249,7 +249,11 @@ export const adminListDocuments = onCall(
   { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
-    await assertAdminMaster(request.auth.uid)
+    try {
+      await assertAdminMaster(request.auth.uid)
+    } catch (err: any) {
+      throw err  // HttpsError ja
+    }
     const db = getFirestore()
     let snap
     try {
@@ -257,7 +261,13 @@ export const adminListDocuments = onCall(
     } catch (err: any) {
       // Fallback: sem orderBy (evita dependencia de indice composto)
       logger.warn('adminListDocuments.orderBy-failed', { err: err?.message })
-      snap = await db.collection('corpus/uploaded').limit(500).get()
+      try {
+        snap = await db.collection('corpus/uploaded').limit(500).get()
+      } catch (err2: any) {
+        // Ultimo fallback: retornar lista vazia
+        logger.error('adminListDocuments.collection-failed', { err: err2?.message })
+        return []
+      }
     }
     // Retorna shape enxuto para a planilha (sem textContent pesado)
     return snap.docs.map((d) => {

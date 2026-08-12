@@ -22,7 +22,6 @@ import { useChatStore } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 import { MessageBubble } from './MessageBubble'
 import { Welcome } from './Welcome'
-import { TypingIndicator } from './TypingIndicator'
 import { OrchestratorTimeline } from './OrchestratorTimeline'
 import { LoginPrompt } from './LoginPrompt'
 
@@ -97,7 +96,7 @@ export function ChatPanel() {
             {messages.map((m) => (
               <MessageBubble key={m.id} message={m} />
             ))}
-            {isThinking ? <OrchestratorTimelineWrapper /> : <TypingIndicator />}
+            {isThinking ? <OrchestratorTimelineWrapper /> : null}
           </>
         )}
       </div>
