@@ -3,7 +3,7 @@
  */
 import { useCallback } from 'react'
 import { api } from '@/lib/api'
-import { isAboutItselfClient, getIdentityResponseClient } from '@/lib/self-detect'
+import { detectQuickReply } from '@/lib/self-detect'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -47,17 +47,19 @@ export function useChat() {
       setThinking(true)
 
       // FAST-PATH CLIENT (padrão Lexio): detecta perguntas sobre o próprio agente
-      // e responde IMEDIATAMENTE no client, sem chamada de rede.
-      // Garante resposta instantânea e correta, sem depender do backend.
-      if (isAboutItselfClient(text)) {
-        const identityAnswer = getIdentityResponseClient(false)
+      // ou interações sociais e responde IMEDIATAMENTE no client, sem chamada de rede.
+      // Categorias: identity, capabilities, how_it_works, how_to_use, social_*
+      // Cada categoria tem resposta NATURAL específica.
+      // Se não matchear nenhuma, vai pro backend (pipeline multi-agente).
+      const quickReply = detectQuickReply(text)
+      if (quickReply) {
         const assistantMessage: ChatMessage = {
-          id: `msg-${Date.now()}-identity`,
+          id: `msg-${Date.now()}-${quickReply.intent}`,
           conversationId: conversationId || '',
           role: 'assistant',
-          content: identityAnswer,
+          content: quickReply.reply,
           sources: [],
-          intent: 'simple-question',
+          intent: quickReply.intent,
           latencyMs: 0,
           tokens: { prompt: 0, completion: 0, total: 0 },
           agentRuns: 0,

@@ -235,13 +235,17 @@ const userAvatarPlaceholderStyle: React.CSSProperties = {
 }
 
 const agentAvatarStyle: React.CSSProperties = {
-  width: 32,
-  height: 32,
-  borderRadius: '50%',
+  width: 40,
+  height: 40,
+  // QUADRADO com fundo TRANSPARENTE — respeita todos os cantos do PNG original
+  // (sem borderRadius, sem background, sem border, sem overflow:hidden)
+  borderRadius: 0,
+  background: 'transparent',
+  border: 'none',
   flexShrink: 0,
-  overflow: 'hidden',
-  background: '#ffffff',
-  border: '1px solid #e5e7eb',
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'flex-start',
 }
 
 const agentHeaderStyle: React.CSSProperties = {
