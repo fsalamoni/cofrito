@@ -66,6 +66,28 @@ export const api = {
     httpsCallable<void, { pageSize: number }>(functions, 'adminGetPageSize')(),
   adminDebugAcervo: () =>
     httpsCallable<void, any>(functions, 'adminDebugAcervo')(),
+  adminFixAcervoStatus: () =>
+    httpsCallable<void, {
+      ok: boolean
+      totalChecked: number
+      fixedCount: number
+      skippedCount: number
+      errorCount: number
+      fixedIds: string[]
+      skippedIds: string[]
+      errors: Array<{ docId: string; err: string }>
+    }>(functions, 'adminFixAcervoStatus')(),
+  adminRebuildTextContent: () =>
+    httpsCallable<void, {
+      ok: boolean
+      totalChecked: number
+      rebuiltCount: number
+      skippedCount: number
+      errorCount: number
+      rebuiltIds: string[]
+      skippedIds: string[]
+      errors: Array<{ docId: string; err: string }>
+    }>(functions, 'adminRebuildTextContent')(),
 
   // Admin: source paths
   adminGetSourcePaths: () =>

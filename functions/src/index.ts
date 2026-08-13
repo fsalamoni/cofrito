@@ -86,6 +86,9 @@ export {
 } from './handlers/admin-documents'
 export * from './handlers/admin-reanalyze'
 export * from './handlers/admin-debug'
+export * from './handlers/admin-debug-public'
+export * from './handlers/admin-fix'
+export * from './handlers/admin-fix-textcontent'
 
 // Admin: configuracao do pipeline de analise do acervo
 export {
