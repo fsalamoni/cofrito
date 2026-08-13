@@ -64,6 +64,8 @@ export const api = {
     httpsCallable<{ pageSize: number }, { ok: boolean; pageSize: number }>(functions, 'adminSetPageSize')({ pageSize }),
   adminGetPageSize: () =>
     httpsCallable<void, { pageSize: number }>(functions, 'adminGetPageSize')(),
+  adminDebugAcervo: () =>
+    httpsCallable<void, any>(functions, 'adminDebugAcervo')(),
 
   // Admin: source paths
   adminGetSourcePaths: () =>

@@ -109,6 +109,7 @@ export function DocumentCatalog() {
   const [savingPageSize, setSavingPageSize] = useState(false)
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
   const [reanalyzingBatch, setReanalyzingBatch] = useState(false)
+  const [pollingActive, setPollingActive] = useState(false)
 
   // Viewer state
   const [selected, setSelected] = useState<DocumentListItem | null>(null)
@@ -120,6 +121,15 @@ export function DocumentCatalog() {
     loadDocs()
     void loadPageSize()
   }, [])
+
+  // Polling: enquanto pollingActive, recarrega a cada 6s
+  useEffect(() => {
+    if (!pollingActive) return
+    const interval = setInterval(() => {
+      void loadDocs()
+    }, 6000)
+    return () => clearInterval(interval)
+  }, [pollingActive])
 
   async function loadPageSize() {
     try {
@@ -148,7 +158,13 @@ export function DocumentCatalog() {
     setLoading(true)
     try {
       const r = await api.adminListDocuments()
-      setDocs((r.data as DocumentListItem[]) || [])
+      const list = (r.data as DocumentListItem[]) || []
+      setDocs(list)
+      // Se nao tem mais nenhum em processando, desativa polling
+      if (pollingActive) {
+        const stillProcessing = list.some(d => d.status === 'analise_processando')
+        if (!stillProcessing) setPollingActive(false)
+      }
     } catch (err: any) {
       console.error('Erro ao listar docs:', err)
     } finally {
@@ -319,10 +335,14 @@ export function DocumentCatalog() {
         }
       }
       alert(msg)
-      // Recarregar lista em 4s para pegar o status novo (analise_processando)
-      setTimeout(() => void loadDocs(), 4000)
+      // Recarregar em 8s para ver o status 'analise_processando'
+      setTimeout(() => void loadDocs(), 8000)
       // Limpar selecao se nao for selectAll
       if (!payload.selectAll) clearSelection()
+      // Ativar polling: recarregar a cada 6s ate nao ter mais docs em 'analise_processando'
+      if (data.queued > 0) {
+        setPollingActive(true)
+      }
     } catch (err: any) {
       alert('Erro ao re-analisar em batch: ' + (err.message || 'desconhecido'))
     } finally {
@@ -728,7 +748,35 @@ export function DocumentCatalog() {
               flexWrap: 'wrap',
               gap: 8,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {pollingActive && (
+                  <span
+                    className="pulse"
+                    style={{
+                      fontSize: 11,
+                      color: '#1e40af',
+                      background: '#dbeafe',
+                      padding: '3px 8px',
+                      borderRadius: 12,
+                      fontWeight: 500,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                    title="Recarregando a cada 6s para mostrar o status atualizado"
+                  >
+                    <span className="spin" style={{ display: 'inline-block', width: 10, height: 10, border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
+                    Atualizando automaticamente
+                  </span>
+                )}
+                <button
+                  onClick={() => void loadDocs()}
+                  disabled={loading}
+                  style={{ ...pageBtnStyle, opacity: loading ? 0.5 : 1 }}
+                  title="Recarregar lista manualmente"
+                >
+                  <RefreshCw size={14} className={loading ? 'spin' : ''} /> Atualizar
+                </button>
                 <span style={{ fontSize: 12, color: '#6b7280' }}>Documentos por página:</span>
                 <select
                   value={pageSize}
@@ -819,16 +867,23 @@ export function DocumentCatalog() {
 // ── Sub-componentes do viewer ──────────────────────────────────────────
 
 function StatusBadge({ status }: { status?: string }) {
-  const colors: Record<string, { bg: string; fg: string; label: string }> = {
-    analisado: { bg: '#dcfce7', fg: '#166534', label: 'Analisado' },
-    analise_pendente: { bg: '#fef3c7', fg: '#92400e', label: 'Pendente' },
-    analise_processando: { bg: '#dbeafe', fg: '#1e40af', label: 'Processando' },
-    erro_analise: { bg: '#fee2e2', fg: '#991b1b', label: 'Erro' },
-    erro_ingestao: { bg: '#fee2e2', fg: '#991b1b', label: 'Erro ingestao' },
+  const colors: Record<string, { bg: string; fg: string; label: string; icon?: 'spinner' | 'check' | 'x' | 'pulse' }> = {
+    analisado: { bg: '#dcfce7', fg: '#166534', label: 'Analisado', icon: 'check' },
+    analise_pendente: { bg: '#fef3c7', fg: '#92400e', label: 'Pendente', icon: 'pulse' },
+    analise_processando: { bg: '#dbeafe', fg: '#1e40af', label: 'Processando', icon: 'spinner' },
+    erro_analise: { bg: '#fee2e2', fg: '#991b1b', label: 'Erro', icon: 'x' },
+    erro_ingestao: { bg: '#fee2e2', fg: '#991b1b', label: 'Erro ingestao', icon: 'x' },
   }
-  const c = colors[status || ''] || { bg: '#f3f4f6', fg: '#6b7280', label: status || '?' }
+  const legacyColors: Record<string, { bg: string; fg: string; label: string; icon?: 'spinner' | 'check' | 'x' | 'pulse' }> = {
+    ativo: { bg: '#e0e7ff', fg: '#3730a3', label: 'Ativo (legado)' },
+  }
+  const c = colors[status || ''] || legacyColors[status || ''] || { bg: '#f3f4f6', fg: '#6b7280', label: status || '?' }
   return (
-    <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: c.bg, color: c.fg }}>
+    <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: c.bg, color: c.fg, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {c.icon === 'spinner' && <span className="spin" style={{ display: 'inline-block', width: 10, height: 10, border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />}
+      {c.icon === 'pulse' && <span className="pulse" style={{ display: 'inline-block', width: 8, height: 8, background: 'currentColor', borderRadius: '50%' }} />}
+      {c.icon === 'check' && <span style={{ display: 'inline-block', width: 12, height: 12, textAlign: 'center', lineHeight: '12px' }}>✓</span>}
+      {c.icon === 'x' && <span style={{ display: 'inline-block', width: 12, height: 12, textAlign: 'center', lineHeight: '12px' }}>✕</span>}
       {c.label}
     </span>
   )
@@ -1112,10 +1167,10 @@ const removeBtnStyle: React.CSSProperties = {
 const tableWrapStyle: React.CSSProperties = {
   border: '1px solid #e5e7eb',
   borderRadius: 8,
-  overflow: 'hidden',
+  overflowX: 'auto',
   background: '#ffffff',
 }
-const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13 }
+const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed', minWidth: 1400 }
 const thStyle: React.CSSProperties = {
   textAlign: 'left',
   padding: '10px 12px',
@@ -1130,7 +1185,13 @@ const trStyle: React.CSSProperties = {
   borderBottom: '1px solid #f3f4f6',
   cursor: 'pointer',
 }
-const tdStyle: React.CSSProperties = { padding: '10px 12px', verticalAlign: 'middle' }
+const tdStyle: React.CSSProperties = {
+  padding: '10px 12px',
+  verticalAlign: 'middle',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
 const tagStyle: React.CSSProperties = {
   padding: '2px 6px',
   borderRadius: 4,

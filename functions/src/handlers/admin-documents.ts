@@ -693,7 +693,7 @@ export async function runAnalysisInBackground(input: {
  *  2. GEMINI_API_KEY do ambiente
  *  3. fallback: stub
  */
-async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
+export async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
   provider: 'openrouter' | 'google' | 'openai' | 'anthropic' | 'custom'
   model: string
   apiKey: string
