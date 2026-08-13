@@ -276,7 +276,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
  * a partir do filename e do texto, quando o LLM nao esta disponivel.
  * SEMPRE retorna dados uteis (nunca campos vazios).
  */
-function getHeuristicAnalysis(fileName: string, text: string): { classification: Classification; ementa: Ementa; keyPoints: KeyPoints } {
+export function getHeuristicAnalysis(fileName: string, text: string): { classification: Classification; ementa: Ementa; keyPoints: KeyPoints } {
   const lower = fileName.toLowerCase()
   const textLower = text.toLowerCase().slice(0, 5000)
 

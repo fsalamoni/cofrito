@@ -421,6 +421,60 @@ export function DocumentCatalog() {
     void reanalyzeBatch({ selectAll: true })
   }
 
+  async function rebuildTextContent() {
+    const ok = window.confirm(
+      'Reconstruir JSON dos documentos?\n\n' +
+      'Para cada doc que tem texto mas NAO tem JSON estruturado (textContent),\n' +
+      'vai gerar o JSON v1 a partir do texto.\n\n' +
+      'Use se a aba "JSON v1" do viewer esta vazia para varios documentos.'
+    )
+    if (!ok) return
+    setReanalyzingBatch(true)
+    try {
+      const r = await api.adminRebuildTextContent()
+      const data = r.data
+      alert(
+        `Reconstrução concluída!\n\n` +
+        `Verificados: ${data.totalChecked}\n` +
+        `Reconstruídos: ${data.rebuiltCount}\n` +
+        `Sem texto (nao mexidos): ${data.skippedCount}\n` +
+        `Erros: ${data.errorCount}`
+      )
+    } catch (err: any) {
+      alert('Erro ao reconstruir: ' + (err.message || 'desconhecido'))
+    } finally {
+      setReanalyzingBatch(false)
+    }
+  }
+
+  async function fixAcervoStatus() {
+    const ok = window.confirm(
+      'Corrigir status do acervo?\n\n' +
+      'Vai percorrer todos os docs e:\n' +
+      '- Docs com dados (classification/ementa/keyPoints) mas status errado: mudar para Analisado\n' +
+      '- Docs sem dados: nao mexer\n\n' +
+      'Use isso se voce re-analisou e muitos docs ficaram com status "Erro" mesmo tendo dados.'
+    )
+    if (!ok) return
+    setReanalyzingBatch(true)
+    try {
+      const r = await api.adminFixAcervoStatus()
+      const data = r.data
+      alert(
+        `Correção concluída!\n\n` +
+        `Verificados: ${data.totalChecked}\n` +
+        `Corrigidos: ${data.fixedCount}\n` +
+        `Sem dados (nao mexidos): ${data.skippedCount}\n` +
+        `Erros: ${data.errorCount}`
+      )
+      // O listener onSnapshot ja' atualiza
+    } catch (err: any) {
+      alert('Erro ao corrigir: ' + (err.message || 'desconhecido'))
+    } finally {
+      setReanalyzingBatch(false)
+    }
+  }
+
   // ── Filtros / paginacao ────────────────────────────────────────────
 
   const filtered = docs.filter((d) => {
@@ -627,6 +681,38 @@ export function DocumentCatalog() {
               title="Refazer análise de TODOS os documentos ativos do acervo"
             >
               Re-analisar todos
+            </button>
+            <button
+              onClick={fixAcervoStatus}
+              disabled={reanalyzingBatch}
+              style={{
+                ...uploadAllBtnStyle,
+                background: '#ffffff',
+                color: '#059669',
+                border: '1px solid #059669',
+                opacity: reanalyzingBatch ? 0.5 : 1,
+                cursor: reanalyzingBatch ? 'not-allowed' : 'pointer',
+              }}
+              title="Corrigir status: docs com dados mas status errado viram 'Analisado'"
+            >
+              <Check size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+              Corrigir status
+            </button>
+            <button
+              onClick={rebuildTextContent}
+              disabled={reanalyzingBatch}
+              style={{
+                ...uploadAllBtnStyle,
+                background: '#ffffff',
+                color: '#7c3aed',
+                border: '1px solid #7c3aed',
+                opacity: reanalyzingBatch ? 0.5 : 1,
+                cursor: reanalyzingBatch ? 'not-allowed' : 'pointer',
+              }}
+              title="Reconstruir JSON (textContent) a partir do textOriginal para docs antigos"
+            >
+              <FileText size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+              Reconstruir JSON
             </button>
           </div>
         </div>

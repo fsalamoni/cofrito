@@ -14,7 +14,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
-import { analyzeAcervoDoc, type AcervoPipelineFlags } from '../services/acervo-analyzer'
+import { analyzeAcervoDoc, getHeuristicAnalysis, type AcervoPipelineFlags } from '../services/acervo-analyzer'
 import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from '../services/storage'
@@ -600,6 +600,7 @@ export async function runAnalysisInBackground(input: {
   analysisMutex.set(input.docId, mutexPromise)
   // Uso intencional: resolveMutex eh atribuido no callback e chamado no finally
   void resolveMutex  // referencia intencional para satisfazer TS strict
+  let analysisSucceeded = false
   try {
     // Marcar como processando
     await input.docRef.set(
@@ -620,12 +621,27 @@ export async function runAnalysisInBackground(input: {
         apiKey: llmOverride.apiKey,
       }
     }
+    // Se NAO tem LLM, usar heuristica diretamente
     if (!llmConfig) {
-      logger.warn('analyzeAcervoDoc: sem LLM config disponivel', { docId: input.docId })
+      logger.warn('analyzeAcervoDoc: sem LLM config disponivel, usando heuristica de fallback', { docId: input.docId })
+      const heuristic = getHeuristicAnalysis(input.fileName, input.text)
       await input.docRef.set(
-        { status: 'analise_pendente', analysisError: 'Nenhum LLM configurado (admin-config/llm, llmOverride ou geminiApiKey)', analysisCompletedAt: FieldValue.serverTimestamp() },
+        {
+          classification: heuristic.classification,
+          ementa: heuristic.ementa,
+          keyPoints: heuristic.keyPoints,
+          status: 'analisado',
+          analyzedAt: FieldValue.serverTimestamp(),
+          analysisVersion: 1,
+          analysisLatencyMs: 0,
+          analysisTokens: { input: 0, output: 0, total: 0 },
+          analysisMethod: 'heuristic',
+          analysisNote: 'Análise via heurística (LLM não configurado)',
+        },
         { merge: true },
       )
+      analysisSucceeded = true
+      logger.info('acervo-analyzer.heuristic.done', { docId: input.docId, tipoDocumento: heuristic.classification.tipoDocumento })
       return
     }
     logger.info('analyzeAcervoDoc: starting', { docId: input.docId, provider: llmConfig.provider, model: llmConfig.model })
@@ -637,7 +653,7 @@ export async function runAnalysisInBackground(input: {
       llmConfig,
       pipelineFlags: flags,
     })
-    // Salvar resultado
+    // Salvar resultado (status='analisado' SEMPRE se o analyzer retornou dados)
     await input.docRef.set(
       {
         classification: result.classification,
@@ -648,11 +664,13 @@ export async function runAnalysisInBackground(input: {
         analysisVersion: 1,
         analysisLatencyMs: result.totalLatencyMs,
         analysisTokens: result.tokens,
+        analysisMethod: 'llm',
       },
       { merge: true },
     )
-    // Fase 2c: re-indexar no corpus com metadados estruturados
-    // (pre-filtro por keywords pro researcher-internal)
+    analysisSucceeded = true
+    logger.info('analyzeAcervoDoc: done', { docId: input.docId, latencyMs: result.totalLatencyMs })
+    // Fase 2c: re-indexar no corpus (NÃO falha o status se der erro)
     try {
       const geminiKey = process.env.GEMINI_API_KEY || ''
       const reindex = await ingestAcervoDoc({
@@ -671,18 +689,23 @@ export async function runAnalysisInBackground(input: {
       })
       logger.info('acervo.reindexed', { docId: input.docId, chunks: reindex.chunksCreated, keywords: reindex.searchKeywords.length })
     } catch (reidxErr) {
+      // Re-index falhou (ex: sem GEMINI_API_KEY), mas status ja' esta' 'analisado'
       logger.warn('acervo.reindexFailed', { docId: input.docId, err: (reidxErr as Error).message })
     }
-    logger.info('analyzeAcervoDoc: done', { docId: input.docId, latencyMs: result.totalLatencyMs })
   } catch (err) {
-    logger.error('analyzeAcervoDoc: failed', { docId: input.docId, err: (err as Error).message })
-    try {
-      await input.docRef.set(
-        { status: 'erro_analise', analysisError: (err as Error).message, analysisCompletedAt: FieldValue.serverTimestamp() },
-        { merge: true },
-      )
-    } catch {
-      // ignore
+    // Só sobrescreve status se a análise NÃO teve sucesso
+    if (analysisSucceeded) {
+      logger.warn('analyzeAcervoDoc: erro pos-analise, mantendo status=analisado', { docId: input.docId, err: (err as Error).message })
+    } else {
+      logger.error('analyzeAcervoDoc: failed', { docId: input.docId, err: (err as Error).message })
+      try {
+        await input.docRef.set(
+          { status: 'erro_analise', analysisError: (err as Error).message, analysisCompletedAt: FieldValue.serverTimestamp() },
+          { merge: true },
+        )
+      } catch {
+        // ignore
+      }
     }
   }
 }
