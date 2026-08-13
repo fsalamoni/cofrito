@@ -3,7 +3,7 @@
  */
 
 import { onDocumentCreated } from 'firebase-functions/v2/firestore'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../../services/firestore'
 
 export const onFeedbackCreate = onDocumentCreated(
   { document: 'feedback/{feedbackId}', region: 'southamerica-east1' },

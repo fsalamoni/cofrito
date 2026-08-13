@@ -529,3 +529,46 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Mode toggle (apenas acervo / informações externas) ──────────────── */
+.cofrito-mode-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.cofrito-mode-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.cofrito-mode-btn:hover:not(.active) {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.cofrito-mode-btn.active {
+  background: #ffffff;
+  color: #1a4d8f;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.cofrito-mode-btn svg {
+  flex-shrink: 0;
+}

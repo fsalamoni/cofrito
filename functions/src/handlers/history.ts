@@ -5,7 +5,8 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getConversations } from '../services/history'
 
-export const getHistory = onCall(async (request) => {
+export const getHistory = onCall(
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }

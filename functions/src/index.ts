@@ -27,6 +27,11 @@
 
 import { setGlobalOptions } from 'firebase-functions/v2'
 
+// NOTA: NÃO chamar initializeApp() aqui. Em Cloud Functions Gen 2,
+// o admin é inicializado como "__FIREBASE_FUNCTIONS_SDK__" (nao "[DEFAULT]"),
+// então getFirestore() sem app falha. O shim services/firestore.ts
+// detecta a app correta e usa getFirestore(app) explicitamente.
+
 setGlobalOptions({
   region: 'southamerica-east1',
   maxInstances: 50,
@@ -34,21 +39,81 @@ setGlobalOptions({
   cpu: 1,
   concurrency: 80,
   timeoutSeconds: 60,
+  // App Check desabilitado por enquanto (configurar reCAPTCHA enterprise depois)
+  // Sem isso, as functions retornam 403 para clientes sem token App Check
+  enforceAppCheck: false,
 })
 
 // Public
 export { chat } from './handlers/chat'
+export { chatV2 } from './handlers/chat-v2'
 export { openConsultaFormal } from './handlers/consulta-formal'
 export { submitFeedback } from './handlers/feedback'
 export { getProfile } from './handlers/profile'
 export { getHistory } from './handlers/history'
-export { updateProfile } from './handlers/update-profile'
+export { updateProfile } from './handlers/profile-update'
 export { deleteAccount } from './handlers/delete-account'
+
+// LLM Config (user + admin)
+export {
+  getLLMConfig,
+  setLLMConfig,
+  deleteLLMConfig,
+  adminGetGlobalLLM,
+  adminSetGlobalLLM,
+  listLLMModels,
+  adminListAdmins,
+  adminGrantAdmin,
+  adminRevokeAdmin,
+  adminListUserLLM,
+} from './handlers/llm-config'
+
+// Bootstrap: primeiro user vira master
+export { bootstrapAdminMaster, grantAdminByEmail } from './handlers/bootstrap-admin'
 
 // Admin
 export { adminReingest } from './handlers/admin/reingest'
 export { adminListConsultas } from './handlers/admin/list-consultas'
 export { adminGetStats } from './handlers/admin/stats'
+
+// Admin: upload de documentos + source paths
+export {
+  adminUploadDocument,
+  adminListDocuments,
+  adminDeleteDocument,
+  adminGetDocument,
+  adminReanalyzeDocument,
+} from './handlers/admin-documents'
+export * from './handlers/admin-reanalyze'
+
+// Admin: configuracao do pipeline de analise do acervo
+export {
+  getAcervoPipelineConfig,
+  saveAcervoPipelineConfig,
+  adminSeedCorpus,
+} from './handlers/admin-acervo'
+
+// Admin: source paths
+export {
+  adminGetSourcePaths,
+  adminSetSourcePaths,
+  adminSyncSourcePath,
+} from './handlers/admin-documents'
+// Admin: configurações globais de pesquisa
+export {
+  getResearchConfig,
+  saveResearchConfig,
+  getWebSearchConfig,
+  saveWebSearchConfig,
+  testWebSearch,
+  getIntranetConfig,
+  saveIntranetConfig,
+  testIntranet,
+  getDeepSearchConfig,
+  saveDeepSearchConfig,
+  testDeepSearch,
+  getPublicResearchStatus,
+} from './handlers/admin-research'
 
 // Triggers
 export { onUserCreate } from './handlers/triggers/on-user-create'

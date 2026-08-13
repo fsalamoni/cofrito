@@ -3,10 +3,11 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { getFirestore } from 'firebase-admin/firestore'
+import { getFirestore } from '../../services/firestore'
 import { assertAdmin } from '../../middleware/auth'
 
-export const adminGetStats = onCall(async (request) => {
+export const adminGetStats = onCall(
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
   await assertAdmin(request.auth.uid)
   const db = getFirestore()

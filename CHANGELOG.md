@@ -34,3 +34,14 @@ e este projeto segue [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - CI/CD workflows
 - 11 documentos seed para o corpus
 - Protótipo HTML standalone (referência de UX)
+
+## [0.0.1] - 2026-08-06
+
+### Configurado
+- Projeto Firebase `cofrito` (número 941013755211) criado e configurado
+- Authentication: Google + email/senha
+- Firestore Database (modo produção, região southamerica-east1)
+- Hosting para `cofrito.web.app`
+- Storage (plano Blaze)
+- `.firebaserc` atualizado com project ID `cofrito`
+- `.env.example` e `frontend/.env.example` atualizados

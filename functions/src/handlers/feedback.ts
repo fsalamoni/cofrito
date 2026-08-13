@@ -4,7 +4,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { z } from 'zod'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../services/firestore'
 
 const FeedbackSchema = z.object({
   messageId: z.string(),
@@ -12,7 +12,8 @@ const FeedbackSchema = z.object({
   comment: z.string().max(500).optional(),
 })
 
-export const submitFeedback = onCall(async (request) => {
+export const submitFeedback = onCall(
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }

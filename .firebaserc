@@ -1,24 +1,11 @@
 {
   "projects": {
-    "default": "cofrito",
-    "dev": "cofrito-dev",
-    "staging": "cofrito-staging",
-    "prod": "cofrito"
+    "default": "cofrito"
   },
   "targets": {
     "cofrito": {
       "hosting": {
         "cofrito": ["cofrito"]
-      }
-    },
-    "cofrito-staging": {
-      "hosting": {
-        "cofrito": ["cofrito-staging"]
-      }
-    },
-    "cofrito-dev": {
-      "hosting": {
-        "cofrito": ["cofrito-dev"]
       }
     }
   }

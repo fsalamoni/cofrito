@@ -3,6 +3,7 @@
  */
 import { useCallback } from 'react'
 import { api } from '@/lib/api'
+import { detectQuickReply } from '@/lib/self-detect'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -14,8 +15,12 @@ export function useChat() {
     conversationId,
     messages,
     isThinking,
+    allowExternal,
+    requestLegalAnalysis,
+    effort,
     addMessage,
     setThinking,
+    setLivePipelineMessageId,
     setConversationId,
     startNewConversation,
   } = useChatStore()
@@ -41,16 +46,47 @@ export function useChat() {
       addMessage(userMessage)
       setThinking(true)
 
+      // FAST-PATH CLIENT (padrão Lexio): detecta perguntas sobre o próprio agente
+      // ou interações sociais e responde IMEDIATAMENTE no client, sem chamada de rede.
+      // Categorias: identity, capabilities, how_it_works, how_to_use, social_*
+      // Cada categoria tem resposta NATURAL específica.
+      // Se não matchear nenhuma, vai pro backend (pipeline multi-agente).
+      const quickReply = detectQuickReply(text)
+      if (quickReply) {
+        const assistantMessage: ChatMessage = {
+          id: `msg-${Date.now()}-${quickReply.intent}`,
+          conversationId: conversationId || '',
+          role: 'assistant',
+          content: quickReply.reply,
+          sources: [],
+          intent: quickReply.intent,
+          latencyMs: 0,
+          tokens: { prompt: 0, completion: 0, total: 0 },
+          agentRuns: 0,
+          iterations: 0,
+          createdAt: new Date().toISOString(),
+        }
+        addMessage(assistantMessage)
+        setThinking(false)
+        return
+      }
+
       try {
         // 2. Chama Cloud Function
         const result = await api.chat({
           conversationId: conversationId || undefined,
           message: text,
+          allowExternal,
+          requestLegalAnalysis,
+          effort,
         })
 
         // 3. Adiciona resposta
         const response = result.data as ChatResponse
         setConversationId(response.conversationId)
+        if (response.pipelineMessageId) {
+          setLivePipelineMessageId(response.pipelineMessageId)
+        }
 
         const assistantMessage: ChatMessage = {
           id: response.messageId,
@@ -61,9 +97,13 @@ export function useChat() {
           intent: response.intent,
           latencyMs: response.latencyMs,
           tokens: response.usage,
+          agentRuns: response.agentRuns,
+          iterations: response.iterations,
+          criticScore: response.criticScore,
           createdAt: new Date().toISOString(),
         }
         addMessage(assistantMessage)
+        setTimeout(() => setLivePipelineMessageId(null), 1500)
       } catch (err: any) {
         const code = err?.code as string | undefined
         if (code === 'functions/not-found' || code === 'functions/unavailable') {
@@ -80,7 +120,8 @@ export function useChat() {
         setThinking(false)
       }
     },
-    [user, conversationId, isThinking, addMessage, setThinking, setConversationId, pushToast],
+    [user, conversationId, isThinking, allowExternal, requestLegalAnalysis, effort, addMessage, setThinking,
+    setLivePipelineMessageId, setConversationId, pushToast],
   )
 
   const restart = useCallback(() => {
@@ -91,6 +132,7 @@ export function useChat() {
     messages,
     isThinking,
     conversationId,
+    allowExternal,
     send,
     restart,
   }

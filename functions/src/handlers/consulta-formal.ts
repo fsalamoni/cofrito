@@ -4,7 +4,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions/v2'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../services/firestore'
 import { z } from 'zod'
 
 import { sendEmail } from '../services/email'
@@ -23,7 +23,7 @@ const ConsultaRequestSchema = z.object({
 })
 
 export const openConsultaFormal = onCall(
-  { cors: true },
+  { cors: true, enforceAppCheck: false },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Faça login para abrir consulta formal.')

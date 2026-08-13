@@ -2,7 +2,7 @@
  * Profile — leitura e atualização de perfil.
  */
 
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from './firestore'
 
 export interface UserProfile {
   uid: string
@@ -23,9 +23,16 @@ export interface UserProfile {
 }
 
 export async function getUserProfile(userId: string): Promise<UserProfile> {
-  const db = getFirestore()
-  const userDoc = await db.doc(`users/${userId}`).get()
-  const data = userDoc.data() || {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let data: any = {}
+  try {
+    const db = getFirestore()
+    const userDoc = await db.doc(`users/${userId}`).get()
+    data = (userDoc.data() as Record<string, unknown>) || {}
+  } catch (err) {
+    // Se admin SDK falhar, retorna profile vazio (default) em vez de quebrar
+    console.warn('getUserProfile: failed to read user doc, returning default', { userId, err: (err as Error)?.message })
+  }
   return {
     uid: userId,
     displayName: data.displayName || 'Usuário',

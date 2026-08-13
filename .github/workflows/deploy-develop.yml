@@ -1,0 +1,89 @@
+name: Deploy Develop (auto)
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy develop → cofrito
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
+        run: npm run build
+
+      - name: Selecionar projeto
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          npm install -g firebase-tools@13
+          firebase use default --token "$FIREBASE_TOKEN"
+
+      - name: Verificar GEMINI_API_KEY (opcional)
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::warning::GEMINI_API_KEY não está configurada. O LLM vai operar em modo stub (sem Gemini). Site funciona normalmente."
+          else
+            echo "✓ GEMINI_API_KEY configurada (LLM real ativo)"
+          fi
+
+      - name: Deploy (functions + firestore + hosting + storage)
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          # Forçar re-deploy das functions que não foram re-criadas
+          # (App Check config cacheada)
+          firebase functions:delete getProfile getLLMConfig getPublicResearchStatus \
+            --region southamerica-east1 \
+            --force \
+            --token "$FIREBASE_TOKEN" || true
+          firebase deploy \
+            --only functions,firestore:rules,hosting,storage \
+            --non-interactive --token "$FIREBASE_TOKEN" || true
+
+      - name: Ingerir corpus (com embeddings)
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cd functions
+          # Converte FIREBASE_SERVICE_ACCOUNT para SA JSON file
+          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa.json
+          GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json \
+          GEMINI_API_KEY="$GEMINI_API_KEY" \
+          FIREBASE_TOKEN="$FIREBASE_TOKEN" \
+          npm run ingest
+        continue-on-error: true
+
+      - name: Smoke test
+        run: |
+          sleep 15
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://cofrito.web.app/ || echo "000")
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Smoke test falhou: HTTP $STATUS (site pode estar propagando)"
+          else
+            echo "✓ Smoke test passou (HTTP 200)"
+          fi

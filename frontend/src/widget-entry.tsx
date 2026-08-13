@@ -16,16 +16,14 @@ import './styles/widget.css'
 class CofritoElement extends HTMLElement {
   private root: Root | null = null
   private tenant = 'caocipp'
-  private position: 'bottom-right' | 'bottom-left' | 'bottom-center' = 'bottom-right'
   private locale = 'pt-BR'
 
   static get observedAttributes() {
-    return ['tenant', 'position', 'locale']
+    return ['tenant', 'locale']
   }
 
   connectedCallback() {
     this.tenant = this.getAttribute('tenant') || 'caocipp'
-    this.position = (this.getAttribute('position') as any) || 'bottom-right'
     this.locale = this.getAttribute('locale') || 'pt-BR'
 
     // Usa Shadow DOM para isolar estilos
@@ -37,7 +35,7 @@ class CofritoElement extends HTMLElement {
     this.root = createRoot(container)
     this.root.render(
       <React.StrictMode>
-        <AgentWidget tenant={this.tenant} position={this.position} locale={this.locale} />
+        <AgentWidget tenant={this.tenant} locale={this.locale} />
       </React.StrictMode>,
     )
   }
@@ -47,11 +45,8 @@ class CofritoElement extends HTMLElement {
     this.root = null
   }
 
-  attributeChangedCallback(name: string, _oldValue: string | null, newValue: string | null) {
-    if (!this.root) return
-    if (name === 'position' && newValue) {
-      this.position = newValue as any
-    }
+  attributeChangedCallback(_name: string, _oldValue: string | null, _newValue: string | null) {
+    // no-op por enquanto
   }
 }
 
@@ -77,7 +72,7 @@ if (document.readyState === 'loading') {
 }
 
 // Expõe API programática
-;(window as any).Cofrito = {
+(window as any).Cofrito = {
   open: () => {
     document.querySelector('cofrito-widget')?.dispatchEvent(new CustomEvent('cofrito:open'))
   },

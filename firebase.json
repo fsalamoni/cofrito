@@ -8,6 +8,10 @@
     ],
     "rewrites": [
       {
+        "source": "/grantAdminByEmail",
+        "function": "grantAdminByEmail"
+      },
+      {
         "source": "/api/**",
         "function": "api"
       },
@@ -17,6 +21,23 @@
       }
     ],
     "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          },
+          {
+            "key": "Pragma",
+            "value": "no-cache"
+          },
+          {
+            "key": "Expires",
+            "value": "0"
+          }
+        ]
+      },
       {
         "source": "**/*.@(js|css|woff2)",
         "headers": [
@@ -56,7 +77,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://*.firebaseio.com https://*.googleapis.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebaseio.com https://*.googleapis.com https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://*.cloudfunctions.net https://southamerica-east1-cofrito.cloudfunctions.net https://openrouter.ai; frame-src 'self' https://*.firebaseapp.com https://*.google.com https://accounts.google.com https://content-sheets.googleapis.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://*.google.com;"
           }
         ]
       }
@@ -88,11 +109,22 @@
     "rules": "storage.rules"
   },
   "emulators": {
-    "auth": { "port": 9099 },
-    "functions": { "port": 5001 },
-    "firestore": { "port": 8080 },
-    "hosting": { "port": 5000 },
-    "ui": { "enabled": true, "port": 4000 },
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
     "singleProjectMode": true
   }
 }

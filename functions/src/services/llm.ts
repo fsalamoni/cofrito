@@ -1,25 +1,29 @@
 /**
- * LLM service — stub.
+ * LLM service — wrapper para Gemini.
  *
- * A integração com a LLM (Google Generative AI) foi deliberadamente
- * desativada neste deploy (decisão de 2026-08). Quando for reativada:
- *  - descomentar o bloco abaixo
- *  - reativar a leitura de API key
- *  - recolocar a string do model name
+ * Suporta dois modos:
+ *  - **Real**: quando GEMINI_API_KEY está configurada, usa Gemini 2.5 Flash.
+ *  - **Stub**: quando não há API key, retorna mensagem amigável mantendo o
+ *    restante do fluxo (sources, tokens) funcional. Útil para dev local e
+ *    para validar a UI antes de configurar a LLM.
  *
- * O stub retorna uma resposta amigável explicando que a LLM ainda não
- * está habilitada, mantendo o restante do fluxo (sources, tokens) funcional.
+ * Aceita `allowExternal` para construir o system prompt:
+ *  - false (padrão): LLM responde APENAS com base no corpus
+ *  - true: LLM pode complementar com conhecimento geral / web
+ *    (mas as regras primordiais de não-alucinar continuam valendo)
  */
 
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'
 import type { RetrievedChunk } from './retrieval'
-import { SYSTEM_PROMPT } from '../prompts/system'
+import { buildSystemPrompt } from '../prompts/system'
 
 export interface GenerateAnswerInput {
   userMessage: string
   history: Array<{ role: 'user' | 'assistant'; content: string }>
   chunks: RetrievedChunk[]
   profile: { displayName: string; inferredAreas: string[] }
-  apiKey: string
+  apiKey: string | undefined
+  allowExternal?: boolean
 }
 
 export interface GenerateAnswerOutput {
@@ -28,17 +32,92 @@ export interface GenerateAnswerOutput {
   tokensUsed: { input: number; output: number; total: number }
 }
 
-export async function generateAnswer(input: GenerateAnswerInput): Promise<GenerateAnswerOutput> {
-  const { chunks, apiKey } = input
+const STUB_NO_KEY = (chunks: RetrievedChunk[]) => ({
+  content:
+    '⚠️ O serviço de geração de respostas (LLM) ainda não está configurado neste ambiente. ' +
+    'A estrutura do agente está no ar, mas a LLM precisa ser habilitada pelo administrador. ' +
+    'Enquanto isso, você pode navegar pelo material do CAOCIPP nos documentos abaixo ou abrir uma consulta formal.',
+  sources: chunks.map((c) => ({
+    docId: c.docId,
+    chunkId: c.id,
+    section: c.section,
+    title: c.section || c.docId,
+    relevance: c.similarity,
+  })),
+  tokensUsed: { input: 0, output: 0, total: 0 },
+})
 
-  // Sem API key → resposta amigável (modo stub)
+export async function generateAnswer(input: GenerateAnswerInput): Promise<GenerateAnswerOutput> {
+  const { userMessage, history, chunks, profile, apiKey, allowExternal = false } = input
+
+  // Modo stub: sem API key
   if (!apiKey) {
+    return STUB_NO_KEY(chunks)
+  }
+
+  // Constrói system prompt com base no modo + corpus
+  const systemPrompt = buildSystemPrompt({
+    allowExternal,
+    hasCorpusChunks: chunks.length > 0,
+    userName: profile.displayName,
+    userAreas: profile.inferredAreas,
+  })
+
+  // Modo real: Gemini
+  const genAI = new GoogleGenerativeAI(apiKey)
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    systemInstruction: systemPrompt,
+    generationConfig: {
+      temperature: allowExternal ? 0.4 : 0.2, // um pouco mais criativo se external
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 1024,
+    },
+    safetySettings: [
+      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE },
+    ],
+  })
+
+  const chunksText = chunks
+    .map(
+      (c, i) =>
+        `[${i + 1}] (ref:${c.docId}#${c.id}, seção: "${c.section}", similaridade: ${c.similarity.toFixed(2)})\n${c.text}`,
+    )
+    .join('\n\n---\n\n')
+
+  const historyText = history
+    .map((h) => `${h.role === 'user' ? 'Usuário' : 'Assistente'}: ${h.content}`)
+    .join('\n')
+
+  const userContent = `
+# PERFIL DO USUÁRIO
+Nome: ${profile.displayName}
+Áreas de interesse: ${profile.inferredAreas.join(', ') || '(nenhuma ainda)'}
+
+# HISTÓRICO RECENTE
+${historyText || '(início da conversa)'}
+
+# MATERIAL DO CORPUS
+${chunksText}
+
+# PERGUNTA
+${userMessage}
+
+Responda de forma direta, cite fontes no formato [ref:docId#chunkId], termine perguntando se foi suficiente.
+`.trim()
+
+  try {
+    const chat = model.startChat()
+    const result = await chat.sendMessage(userContent)
+    const response = result.response
+    const text = response.text()
+
     return {
-      content:
-        '⚠️ O serviço de geração de respostas (LLM) ainda não está configurado neste ambiente. ' +
-        'A estrutura do agente está no ar, mas a LLM precisa ser habilitada pelo administrador. ' +
-        'Enquanto isso, você pode navegar pelo material do CAOCIPP nos documentos abaixo ou abrir uma consulta formal.\n\n' +
-        `System prompt ativo: ${SYSTEM_PROMPT ? 'sim' : 'não'}.`,
+      content: text,
       sources: chunks.map((c) => ({
         docId: c.docId,
         chunkId: c.id,
@@ -46,16 +125,15 @@ export async function generateAnswer(input: GenerateAnswerInput): Promise<Genera
         title: c.section || c.docId,
         relevance: c.similarity,
       })),
-      tokensUsed: { input: 0, output: 0, total: 0 },
+      tokensUsed: {
+        input: response.usageMetadata?.promptTokenCount ?? 0,
+        output: response.usageMetadata?.candidatesTokenCount ?? 0,
+        total: response.usageMetadata?.totalTokenCount ?? 0,
+      },
     }
-  }
-
-  // Modo LLM real — não implementado neste deploy.
-  return {
-    content:
-      '⚠️ LLM key presente, mas o serviço de geração está em modo stub neste deploy. ' +
-      'Reative a integração no código (ver comentário no topo deste arquivo).',
-    sources: [],
-    tokensUsed: { input: 0, output: 0, total: 0 },
+  } catch (err) {
+    // Se Gemini falhar, fallback para stub para não quebrar UX
+    console.error('llm.error', err)
+    return STUB_NO_KEY(chunks)
   }
 }

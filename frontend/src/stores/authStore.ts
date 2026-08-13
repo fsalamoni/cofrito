@@ -7,6 +7,10 @@ import {
   signInWithEmailLink,
   sendSignInLinkToEmail,
   isSignInWithEmailLink,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth'
@@ -22,6 +26,9 @@ interface AuthState {
   init: () => () => void
   signIn: (email: string) => Promise<void>
   completeSignIn: () => Promise<void>
+  signInWithGoogle: () => Promise<void>
+  signInWithEmail: (email: string, password: string) => Promise<void>
+  signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -125,5 +132,41 @@ export const useAuthStore = create<AuthState>((set) => ({
   signOut: async () => {
     await fbSignOut(auth)
     set({ user: null })
+  },
+
+  signInWithGoogle: async () => {
+    set({ loading: true, error: null })
+    try {
+      const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: 'select_account' })
+      await signInWithPopup(auth, provider)
+    } catch (err: any) {
+      set({ error: err.message, loading: false })
+      throw err
+    }
+  },
+
+  signInWithEmail: async (email: string, password: string) => {
+    set({ loading: true, error: null })
+    try {
+      await signInWithEmailAndPassword(auth, email, password)
+    } catch (err: any) {
+      set({ error: err.message, loading: false })
+      throw err
+    }
+  },
+
+  signUpWithEmail: async (email: string, password: string, displayName: string) => {
+    set({ loading: true, error: null })
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      if (cred.user && displayName) {
+        const { updateProfile } = await import('firebase/auth')
+        await updateProfile(cred.user, { displayName })
+      }
+    } catch (err: any) {
+      set({ error: err.message, loading: false })
+      throw err
+    }
   },
 }))

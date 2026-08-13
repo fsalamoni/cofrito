@@ -18,7 +18,7 @@ const messages: Record<string, LocaleMessages> = {
 
 const DEFAULT_LOCALE = 'pt-BR'
 
-export function t(key: MessageKey, locale = DEFAULT_LOCALE): string {
+export function t(key: MessageKey, locale: string = DEFAULT_LOCALE): string {
   return messages[locale]?.[key] || messages[DEFAULT_LOCALE][key] || key
 }
 

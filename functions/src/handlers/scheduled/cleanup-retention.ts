@@ -8,7 +8,7 @@
  */
 
 import { onSchedule } from 'firebase-functions/v2/scheduler'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../../services/firestore'
 import { logger } from 'firebase-functions/v2'
 
 const RETENTION = {

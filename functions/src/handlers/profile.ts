@@ -3,11 +3,12 @@
  */
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
-import { getFirestore, Timestamp } from 'firebase-admin/firestore'
+import { getFirestore, Timestamp } from '../services/firestore'
 import { getUserProfile as getProfileFromDB } from '../services/profile'
 import { z } from 'zod'
 
-export const getProfile = onCall(async (request) => {
+export const getProfile = onCall(
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }
@@ -28,7 +29,8 @@ const UpdateProfileSchema = z.object({
     .optional(),
 })
 
-export const updateProfile = onCall(async (request) => {
+export const updateProfile = onCall(
+  { cors: true, enforceAppCheck: false },async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Faça login.')
   }
@@ -55,3 +57,4 @@ export const updateProfile = onCall(async (request) => {
 
   return await getProfileFromDB(userId)
 })
+// Forçado para re-deploy 2026-08-10
