@@ -55,8 +55,11 @@ interface DocumentListItem {
   } | null
   ementa?: {
     tipo?: string
+    tipoDocumento?: string
     assunto?: string
     sintese?: string
+    /** Fundamentação jurídica principal (tese, ratio) — para documentos jurídicos */
+    fundamentacao?: string
     areas?: string[]
     topicos?: string[]
     conclusao?: string
@@ -84,7 +87,6 @@ const ACCEPTED_TYPES = [
 ]
 const ACCEPTED_EXT = ['.pdf', '.docx', '.doc', '.txt', '.md', '.markdown', '.html', '.rtf']
 
-const PAGE_SIZE = 20
 
 // ── Componente principal ───────────────────────────────────────────────
 
@@ -103,6 +105,10 @@ export function DocumentCatalog() {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState<number>(20)
+  const [savingPageSize, setSavingPageSize] = useState(false)
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
+  const [reanalyzingBatch, setReanalyzingBatch] = useState(false)
 
   // Viewer state
   const [selected, setSelected] = useState<DocumentListItem | null>(null)
@@ -112,7 +118,31 @@ export function DocumentCatalog() {
 
   useEffect(() => {
     loadDocs()
+    void loadPageSize()
   }, [])
+
+  async function loadPageSize() {
+    try {
+      const r = await api.adminGetPageSize()
+      const size = (r.data as { pageSize: number }).pageSize
+      if (size && [20, 50, 100].includes(size)) setPageSize(size)
+    } catch (err) {
+      console.warn('Falha ao carregar pageSize, usando default 20', err)
+    }
+  }
+
+  async function changePageSize(size: number) {
+    setSavingPageSize(true)
+    try {
+      await api.adminSetPageSize(size)
+      setPageSize(size)
+      setPage(0)
+    } catch (err: any) {
+      alert('Erro ao salvar page size: ' + (err.message || 'desconhecido'))
+    } finally {
+      setSavingPageSize(false)
+    }
+  }
 
   async function loadDocs() {
     setLoading(true)
@@ -247,6 +277,83 @@ export function DocumentCatalog() {
     }
   }
 
+  function toggleSelectDoc(docId: string) {
+    setSelectedDocIds(prev => {
+      const next = new Set(prev)
+      if (next.has(docId)) next.delete(docId)
+      else next.add(docId)
+      return next
+    })
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedDocIds(prev => {
+      const allVisibleIds = pageItems.map(d => d.id)
+      const allSelected = allVisibleIds.every(id => prev.has(id))
+      if (allSelected) {
+        const next = new Set(prev)
+        allVisibleIds.forEach(id => next.delete(id))
+        return next
+      } else {
+        const next = new Set(prev)
+        allVisibleIds.forEach(id => next.add(id))
+        return next
+      }
+    })
+  }
+
+  function clearSelection() {
+    setSelectedDocIds(new Set())
+  }
+
+  async function reanalyzeBatch(payload: { docIds?: string[]; selectAll?: boolean }) {
+    setReanalyzingBatch(true)
+    try {
+      const r = await api.adminReanalyzeBatch(payload)
+      const data = r.data as { queued: number; failed: number; message: string; queuedIds: string[]; failures: { docId: string; reason: string }[] }
+      let msg = data.message || `${data.queued} documento(s) enfileirado(s) para re-analise em background.`
+      if (data.failed > 0) {
+        msg += `\n${data.failed} falharam (sem texto ou outro erro).`
+        if (data.failures && data.failures.length > 0) {
+          console.warn('Re-analise failures:', data.failures)
+        }
+      }
+      alert(msg)
+      // Recarregar lista em 4s para pegar o status novo (analise_processando)
+      setTimeout(() => void loadDocs(), 4000)
+      // Limpar selecao se nao for selectAll
+      if (!payload.selectAll) clearSelection()
+    } catch (err: any) {
+      alert('Erro ao re-analisar em batch: ' + (err.message || 'desconhecido'))
+    } finally {
+      setReanalyzingBatch(false)
+    }
+  }
+
+  function onReanalyzeSelected() {
+    if (selectedDocIds.size === 0) {
+      alert('Selecione pelo menos 1 documento para re-analisar.')
+      return
+    }
+    const ok = window.confirm(
+      `Re-analisar ${selectedDocIds.size} documento(s)?\n\n` +
+      `Ira usar o modelo LLM configurado para o acervo e gerar classification + ementa + keyPoints novamente.\n` +
+      `Pode demorar alguns minutos para todos serem processados.`
+    )
+    if (!ok) return
+    void reanalyzeBatch({ docIds: Array.from(selectedDocIds) })
+  }
+
+  function onReanalyzeAll() {
+    const ok = window.confirm(
+      'Re-analisar TODOS os documentos do acervo?\n\n' +
+      'Esta operacao pode levar MUITO tempo dependendo do volume.\n' +
+      'Recomendado apenas se voce acabou de trocar o modelo LLM ou se muitos docs estao sem analise.'
+    )
+    if (!ok) return
+    void reanalyzeBatch({ selectAll: true })
+  }
+
   // ── Filtros / paginacao ────────────────────────────────────────────
 
   const filtered = docs.filter((d) => {
@@ -262,8 +369,11 @@ export function DocumentCatalog() {
     return true
   })
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const totalPages = Math.ceil(filtered.length / pageSize)
+  const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize)
+
+  // Ao mudar pageSize, voltar para primeira pagina
+  useEffect(() => { setPage(0) }, [pageSize])
 
   // ── Render ─────────────────────────────────────────────────────────
 
@@ -400,6 +510,60 @@ export function DocumentCatalog() {
           </div>
         </div>
 
+        {/* Barra de acoes em batch */}
+        <div style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          padding: '8px 12px',
+          background: '#f0f9ff',
+          border: '1px solid #bae6fd',
+          borderRadius: 8,
+          marginBottom: 12,
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 12, color: '#0c4a6e', fontWeight: 500 }}>
+            {selectedDocIds.size > 0
+              ? `${selectedDocIds.size} selecionado(s)`
+              : 'Nenhum selecionado'}
+          </span>
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+            {selectedDocIds.size > 0 && (
+              <button onClick={clearSelection} style={clearBtnStyle}>
+                Limpar seleção
+              </button>
+            )}
+            <button
+              onClick={onReanalyzeSelected}
+              disabled={selectedDocIds.size === 0 || reanalyzingBatch}
+              style={{
+                ...uploadAllBtnStyle,
+                opacity: (selectedDocIds.size === 0 || reanalyzingBatch) ? 0.5 : 1,
+                cursor: (selectedDocIds.size === 0 || reanalyzingBatch) ? 'not-allowed' : 'pointer',
+              }}
+              title="Refazer classificação + ementa + pontos relevantes dos documentos selecionados (usa o LLM configurado)"
+            >
+              <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+              Re-analisar selecionados
+            </button>
+            <button
+              onClick={onReanalyzeAll}
+              disabled={reanalyzingBatch}
+              style={{
+                ...uploadAllBtnStyle,
+                background: '#ffffff',
+                color: '#1a4d8f',
+                border: '1px solid #1a4d8f',
+                opacity: reanalyzingBatch ? 0.5 : 1,
+                cursor: reanalyzingBatch ? 'not-allowed' : 'pointer',
+              }}
+              title="Refazer análise de TODOS os documentos ativos do acervo"
+            >
+              Re-analisar todos
+            </button>
+          </div>
+        </div>
+
         {loading ? (
           <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>
             <Loader2 size={24} className="spin" /> Carregando...
@@ -414,35 +578,105 @@ export function DocumentCatalog() {
               <table style={tableStyle}>
                 <thead>
                   <tr>
+                    <th style={{ ...thStyle, width: 36, textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={pageItems.length > 0 && pageItems.every(d => selectedDocIds.has(d.id))}
+                        onChange={toggleSelectAllVisible}
+                        title="Selecionar todos os visíveis"
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </th>
                     <th style={thStyle}>Arquivo</th>
                     <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Tipo Doc</th>
                     <th style={thStyle}>Natureza</th>
-                    <th style={thStyle}>Assunto</th>
+                    <th style={thStyle}>Assunto / Ementa</th>
+                    <th style={thStyle}>Pontos-chave</th>
                     <th style={thStyle}>Areas</th>
-                    <th style={thStyle}>Pags</th>
-                    <th style={thStyle}>Comp.</th>
                     <th style={thStyle}>Acoes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageItems.map((d) => (
-                    <tr key={d.id} style={trStyle} onClick={() => openViewer(d)}>
-                      <td style={tdStyle}>
+                    <tr key={d.id} style={trStyle}>
+                      <td style={{ ...tdStyle, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedDocIds.has(d.id)}
+                          onChange={() => toggleSelectDoc(d.id)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
                         <div style={{ fontWeight: 500 }}>{d.title || d.fileName || d.id}</div>
                         {d.fileName && d.title && d.title !== d.fileName && (
                           <div style={{ fontSize: 11, color: '#6b7280' }}>{d.fileName}</div>
                         )}
-                      </td>
-                      <td style={tdStyle}>
-                        <StatusBadge status={d.status} />
-                      </td>
-                      <td style={tdStyle}>{d.classification?.natureza || '—'}</td>
-                      <td style={tdStyle}>
-                        <div style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {d.ementa?.assunto || '—'}
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+                          {d.pages ? `${d.pages} pags` : '—'} · {d.compressionGain || '—'}
                         </div>
                       </td>
-                      <td style={tdStyle}>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
+                        <StatusBadge status={d.status} />
+                      </td>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: '#0f172a' }}>
+                          {d.classification?.tipoDocumento || d.ementa?.tipo || '—'}
+                        </div>
+                      </td>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>
+                          {d.classification?.natureza || '—'}
+                        </div>
+                      </td>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
+                        <div style={{ maxWidth: 280 }}>
+                          <div style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: '#0f172a',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }} title={d.ementa?.assunto || ''}>
+                            {d.ementa?.assunto || '—'}
+                          </div>
+                          {d.ementa?.sintese && (
+                            <div style={{
+                              fontSize: 11,
+                              color: '#6b7280',
+                              marginTop: 2,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }} title={d.ementa.sintese}>
+                              {d.ementa.sintese}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
+                        <div style={{ maxWidth: 200 }}>
+                          {d.keyPoints?.items && d.keyPoints.items.length > 0 ? (
+                            <div style={{
+                              fontSize: 11,
+                              color: '#374151',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }} title={d.keyPoints.items.join(' • ')}>
+                              {d.keyPoints.items.slice(0, 3).join(' • ')}
+                              {d.keyPoints.items.length > 3 && ` (+${d.keyPoints.items.length - 3})`}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 11, color: '#9ca3af' }}>—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={tdStyle} onClick={() => openViewer(d)}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {(d.classification?.areaDireito || d.area || []).slice(0, 2).map((a) => (
                             <span key={a} style={tagStyle}>{a}</span>
@@ -454,8 +688,6 @@ export function DocumentCatalog() {
                           )}
                         </div>
                       </td>
-                      <td style={tdStyle}>{d.pages || '—'}</td>
-                      <td style={tdStyle}>{d.compressionGain || '—'}</td>
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                           <button
@@ -487,28 +719,51 @@ export function DocumentCatalog() {
               </table>
             </div>
 
-            {/* Paginacao */}
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 12 }}>
-                <button
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  style={pageBtnStyle}
+            {/* Paginacao + page size */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: 12,
+              flexWrap: 'wrap',
+              gap: 8,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>Documentos por página:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => changePageSize(Number(e.target.value))}
+                  disabled={savingPageSize}
+                  style={{ ...selectStyle, padding: '4px 8px', fontSize: 12, opacity: savingPageSize ? 0.5 : 1 }}
+                  title="Tamanho da página (configurável pelo admin)"
                 >
-                  <ChevronLeft size={16} /> Anterior
-                </button>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>
-                  Pagina {page + 1} de {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  style={pageBtnStyle}
-                >
-                  Proxima <ChevronRight size={16} />
-                </button>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
               </div>
-            )}
+              {totalPages > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    style={pageBtnStyle}
+                  >
+                    <ChevronLeft size={16} /> Anterior
+                  </button>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>
+                    Página {page + 1} de {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={page >= totalPages - 1}
+                    style={pageBtnStyle}
+                  >
+                    Próxima <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -670,6 +925,11 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
           <Field label="Tipo">{doc.ementa.tipo || '—'}</Field>
           <Field label="Assunto">{doc.ementa.assunto || '—'}</Field>
           <Field label="Sintese">{doc.ementa.sintese || '—'}</Field>
+          {doc.ementa.fundamentacao && (
+            <Field label="Fundamentação">
+              <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.fundamentacao}</div>
+            </Field>
+          )}
           <Field label="Conclusao">{doc.ementa.conclusao || '—'}</Field>
           <Field label="Topicos">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>

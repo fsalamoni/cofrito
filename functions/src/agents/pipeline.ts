@@ -20,6 +20,7 @@
 
 import { runOrchestrator } from './orchestrator'
 import { runResearcherInternal } from './researcher-internal'
+import { searchCorpusFourLevel } from './corpus-search'
 import { runResearcherWeb } from './researcher-web'
 import { runCompiler } from './compiler'
 import { runLegalWriter, buildRefusalAnswer } from './legal-writer'
@@ -160,8 +161,54 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
     }
   }
 
-  // 2) RESEARCHER-INTERNAL ─────────────────────────────────────────────────
-  let internalSources: import('./types').SourceRef[] = []
+  // 2a) CORPUS 4-LEVEL SEARCH (rapido, sem LLM, filtros progressivos) ──
+  // OTIMIZACAO: faz busca em 4 niveis no nivel do DOCUMENTO:
+  //   L1 = classification (natureza, tipo, area, assuntos)
+  //   L2 = keyPoints + ementa.keywords
+  //   L3 = ementa (sintese, fundamentacao, conclusao)
+  //   L4 = textContent (apenas dos finalistas)
+  // Vantagem: nao carrega textContent ate saber que o doc e' RELEVANTE.
+  const fourLevelSources: import('./types').SourceRef[] = []
+  if (plan?.requiresInternalSearch !== false && plan?.points && plan.points.length > 0) {
+    try {
+      for (const point of plan.points) {
+        const result = await searchCorpusFourLevel({
+          point,
+          maxResults: preset.maxSourcesPerPoint || 5,
+          logger,
+        })
+        for (const d of result.docs) {
+          fourLevelSources.push({
+            id: d.id,
+            docId: d.id,
+            title: d.title || d.fileName || d.id,
+            section: 'corpus-search-4level',
+            url: d.storagePath,
+            type: 'internal-document',
+            relevance: 0.7,  // baseline — o runResearcherInternal pode sobrescrever
+            snippet: (d.ementa?.sintese || d.ementa?.assunto || d.fileName || '').slice(0, 800),
+            fullText: d.textContent || d.textOriginal,
+            date: d.updatedAt || d.createdAt,
+            sourcePath: 'corpus/',
+            verified: true,
+          })
+        }
+        if (result.docs.length > 0) {
+          logger.info('pipeline.corpus-4level.found', {
+            point: point.id,
+            docs: result.docs.length,
+            stats: result.stats,
+            ms: result.totalMs,
+          })
+        }
+      }
+    } catch (err) {
+      logger.warn('pipeline.corpus-4level.failed', { err: (err as Error).message })
+    }
+  }
+
+  // 2b) RESEARCHER-INTERNAL (busca em CHUNKS com embeddings) ────────────
+  let internalSources: import('./types').SourceRef[] = fourLevelSources
   if (plan?.requiresInternalSearch !== false && plan?.points && plan.points.length > 0) {
     emit({ type: 'agent_start', role: 'researcher-internal', ts: new Date().toISOString() })
     const intRun = await runAgent('researcher-internal', async () => {
@@ -172,7 +219,10 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
         logger,
         llmConfig,
       })
-      return { sources, output: { count: sources.length } }
+      // Combina com 4-level (4-level ja' vem com docs mais relevantes, nao duplica)
+      const fourLevelIds = new Set(fourLevelSources.map(s => s.docId))
+      const newSources = sources.filter(s => !fourLevelIds.has(s.docId))
+      return { sources: [...fourLevelSources, ...newSources], output: { count: sources.length, fromFourLevel: fourLevelSources.length } }
     }, logger)
     runs.push(intRun.run)
     internalSources = intRun.result?.sources ?? []

@@ -84,6 +84,7 @@ export {
   adminGetDocument,
   adminReanalyzeDocument,
 } from './handlers/admin-documents'
+export * from './handlers/admin-reanalyze'
 
 // Admin: configuracao do pipeline de analise do acervo
 export {
@@ -98,7 +99,6 @@ export {
   adminSetSourcePaths,
   adminSyncSourcePath,
 } from './handlers/admin-documents'
-
 // Admin: configurações globais de pesquisa
 export {
   getResearchConfig,

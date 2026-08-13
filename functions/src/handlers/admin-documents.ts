@@ -582,7 +582,7 @@ async function resolveAcervoPipelineConfig(): Promise<{
 // (race condition: 2 analises paralelas -> last write wins, pode perder dados)
 const analysisMutex = new Map<string, Promise<void>>()
 
-async function runAnalysisInBackground(input: {
+export async function runAnalysisInBackground(input: {
   uid: string
   docId: string
   fileName: string

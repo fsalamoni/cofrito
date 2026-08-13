@@ -29,8 +29,13 @@ export interface Classification {
 
 export interface Ementa {
   tipo: string
+  /** Ex: "Parecer", "Sentença", "Acórdão", "Despacho", "Nota Técnica", "Notícia", "Manifestação", "Artigo", "Doutrina", "Livro" */
+  tipoDocumento?: string
   assunto: string
+  /** Síntese curta do caso (1-2 frases) */
   sintese: string
+  /** Fundamentação jurídica principal (tese, ratio, argumentos) — para documentos jurídicos */
+  fundamentacao?: string
   areas: string[]
   topicos: string[]
   conclusao: string
@@ -121,6 +126,7 @@ const UNIFIED_SYSTEM_PROMPT = [
   '    "tipo": "Parecer|Petição|ACP|Sentença|Recurso|Outro",',
   '    "assunto": "Tema principal em 1-2 palavras",',
   '    "sintese": "Síntese do caso em 1-2 frases curtas",',
+  '    "fundamentacao": "Fundamentação jurídica principal (tese, ratio, argumentos) - para docs jurídicos",',
   '    "areas": ["Direito Administrativo"],',
   '    "topicos": ["Súmula Vinculante 13"],',
   '    "conclusao": "Conclusão em 1 frase",',
@@ -141,6 +147,7 @@ const UNIFIED_SYSTEM_PROMPT = [
   '- classification.tipo_documento: tipo específico (ex: Parecer, Petição inicial, Sentença, TAC, Contrato).',
   '- classification.contexto: 1 a 5 circunstâncias fáticas.',
   '- ementa.assunto: CURTO (1-2 palavras), ideal para busca rápida.',
+'- ementa.fundamentacao: para docs jurídicos, cite a tese/razão de decidir; pode ser vazia para docs não jurídicos.',
   '- ementa.keywords: TODAS as palavras relevantes para busca, incluindo sinônimos (mín 5, máx 25).',
   '- key_points.items: 3 a 8 pontos OBJETIVOS e CURTOS (1 frase cada).',
   '- key_points.reusable_content: copie trechos LITERAIS do documento (200-1500 chars).',
@@ -293,8 +300,12 @@ function normalizeEmenta(raw: unknown, fileName: string): Ementa {
     : []
   return {
     tipo: typeof obj.tipo === 'string' ? obj.tipo : 'Outro',
+    tipoDocumento: typeof obj.tipo_documento === 'string'
+      ? obj.tipo_documento
+      : (typeof obj.tipo === 'string' ? obj.tipo : 'Outro'),
     assunto: typeof obj.assunto === 'string' ? obj.assunto : '',
     sintese: typeof obj.sintese === 'string' ? obj.sintese : '',
+    fundamentacao: typeof obj.fundamentacao === 'string' ? obj.fundamentacao : '',
     areas: Array.isArray(obj.areas) ? obj.areas.filter((x: unknown) => typeof x === 'string') : [],
     topicos: Array.isArray(obj.topicos) ? obj.topicos.filter((x: unknown) => typeof x === 'string') : [],
     conclusao: typeof obj.conclusao === 'string' ? obj.conclusao : '',

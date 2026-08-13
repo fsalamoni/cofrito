@@ -58,6 +58,12 @@ export const api = {
   saveAcervoPipelineConfig: (config: any) => httpsCallable<any, { ok: boolean; config: any }>(functions, 'saveAcervoPipelineConfig')(config),
   adminReanalyzeDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
+  adminReanalyzeBatch: (payload: { docIds?: string[]; selectAll?: boolean }) =>
+    httpsCallable<typeof payload, { ok: boolean; queued: number; failed: number; queuedIds: string[]; failures: { docId: string; reason: string }[]; message: string }>(functions, 'adminReanalyzeBatch')(payload),
+  adminSetPageSize: (pageSize: number) =>
+    httpsCallable<{ pageSize: number }, { ok: boolean; pageSize: number }>(functions, 'adminSetPageSize')({ pageSize }),
+  adminGetPageSize: () =>
+    httpsCallable<void, { pageSize: number }>(functions, 'adminGetPageSize')(),
 
   // Admin: source paths
   adminGetSourcePaths: () =>
