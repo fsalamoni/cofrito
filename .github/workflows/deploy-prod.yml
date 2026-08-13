@@ -78,7 +78,6 @@ jobs:
         run: |
           npx -p firebase-tools firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
             --project cofrito \
-            --only hosting \
             live:pre-deploy-$(date +%Y%m%d-%H%M%S)
 
       - name: Deploy
