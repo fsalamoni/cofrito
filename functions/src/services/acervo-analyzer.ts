@@ -220,11 +220,12 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       config: { ...input.llmConfig, maxTokens: 2000, temperature: 0.1 },
     })
   } catch (err) {
-    logger.warn('analyzeAcervoDoc: LLM falhou, retornando defaults', { err: (err as Error).message })
+    logger.warn('analyzeAcervoDoc: LLM falhou, usando heuristica de fallback', { err: (err as Error).message })
+    const heuristic = getHeuristicAnalysis(input.fileName, input.text)
     return {
-      classification: getDefaultClassification(),
-      ementa: getDefaultEmenta(),
-      keyPoints: { items: [], reusableContent: '' },
+      classification: heuristic.classification,
+      ementa: heuristic.ementa,
+      keyPoints: heuristic.keyPoints,
       totalLatencyMs: Date.now() - start,
       tokens: { input: 0, output: 0, total: 0 },
     }
@@ -233,11 +234,12 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
   // 3. Parsear JSON unificado
   const parsed = tryParseUnifiedJson(result.content)
   if (!parsed.ok) {
-    logger.warn('analyzeAcervoDoc: JSON invalido, retornando defaults', { error: parsed.error })
+    logger.warn('analyzeAcervoDoc: JSON invalido, usando heuristica de fallback', { error: parsed.error })
+    const heuristic = getHeuristicAnalysis(input.fileName, input.text)
     return {
-      classification: getDefaultClassification(),
-      ementa: getDefaultEmenta(),
-      keyPoints: { items: [], reusableContent: '' },
+      classification: heuristic.classification,
+      ementa: heuristic.ementa,
+      keyPoints: heuristic.keyPoints,
       totalLatencyMs: Date.now() - start,
       tokens: result.tokens,
     }
@@ -268,6 +270,141 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
 }
 
 // ── Normalizadores (cada skill) ───────────────────────────────────────
+
+/**
+ * Heuristica de fallback: gera classification + ementa basicas
+ * a partir do filename e do texto, quando o LLM nao esta disponivel.
+ * SEMPRE retorna dados uteis (nunca campos vazios).
+ */
+function getHeuristicAnalysis(fileName: string, text: string): { classification: Classification; ementa: Ementa; keyPoints: KeyPoints } {
+  const lower = fileName.toLowerCase()
+  const textLower = text.toLowerCase().slice(0, 5000)
+
+  // Detectar tipo do documento
+  let tipoDocumento = 'Outro'
+  let natureza: Natureza = 'consultivo'
+  if (/parecer|informativo|nota\s+t[eé]cnic|manifesta[cç][aã]o|consulta/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Parecer'; natureza = 'consultivo'
+  } else if (/senten[cç]a|julgad|conden|absolvi/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Sentença'; natureza = 'decisorio'
+  } else if (/ac[oó]rd[aã]o|tribunal|recurso|apel/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Acórdão'; natureza = 'decisorio'
+  } else if (/despacho/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Despacho'; natureza = 'decisorio'
+  } else if (/peti[cç][aã]o|inicial|den[uú]ncia|recurso|contrarraz/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Petição'; natureza = 'executorio'
+  } else if (/tac|anpc|anpp|acordo|termo\s+de\s+(ajuste|compromisso)/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'TAC'; natureza = 'transacional'
+  } else if (/contrato|edital|termo\s+de\s+refer/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Contrato'; natureza = 'negocial'
+  } else if (/artigo|doutrina|tese|monografia|estudo/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Artigo'; natureza = 'doutrinario'
+  } else if (/not[ií]cia|m[ií]dia|jornal/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Notícia'; natureza = 'doutrinario'
+  } else if (/jurisprud|precedent|s[uú]mula/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Jurisprudência'; natureza = 'decisorio'
+  } else if (/livro|manual|guia/i.test(lower + ' ' + textLower)) {
+    tipoDocumento = 'Livro'; natureza = 'doutrinario'
+  }
+
+  // Detectar área
+  const areas: string[] = []
+  const areaPatterns: Array<[RegExp, string]> = [
+    [/administrativo|licita[cç][aã]o|contrat/i, 'Direito Administrativo'],
+    [/constitucional|adi|adc/i, 'Direito Constitucional'],
+    [/civil|responsabilidade\s+civil|obriga[cç][aã]o/i, 'Direito Civil'],
+    [/penal|criminal|delito/i, 'Direito Penal'],
+    [/processual\s+civil|cpc/i, 'Direito Processual Civil'],
+    [/processual\s+penal|cpp/i, 'Direito Processual Penal'],
+    [/tribut|icms|ipi|ir|iss/i, 'Direito Tributário'],
+    [/trabalhista|clt|trabalho/i, 'Direito do Trabalho'],
+    [/previdenci|inss|aposentador/i, 'Direito Previdenciário'],
+    [/ambiental|crime\s+ambiental/i, 'Direito Ambiental'],
+    [/consumidor|cdc/i, 'Direito do Consumidor'],
+    [/improbidade/i, 'Improbidade Administrativa'],
+    [/patrim[oô]nio\s+p[úu]blico/i, 'Patrimônio Público'],
+  ]
+  for (const [pattern, area] of areaPatterns) {
+    if (pattern.test(lower + ' ' + textLower)) areas.push(area)
+  }
+
+  // Detectar assuntos
+  const assuntos: string[] = []
+  const assuntoPatterns = [
+    'Nepotismo', 'Licitação', 'Improbidade', 'Improbidade Administrativa',
+    'Patrimônio Público', 'Mandado de Segurança', 'Habeas Corpus',
+    'Ação Popular', 'Ação Civil Pública', 'Regressão',
+    'Súmula Vinculante', 'Jurisprudência', 'Precedente',
+    'Inconstitucionalidade', 'Modulação de Efeitos', 'Repercussão Geral',
+  ]
+  for (const a of assuntoPatterns) {
+    if (textLower.includes(a.toLowerCase())) assuntos.push(a)
+  }
+
+  // Topicos
+  const topicos: string[] = []
+  if (/sv\s*13|sumula\s+vinculante\s+13/i.test(textLower)) topicos.push('SV 13')
+  if (/sv\s*10|sumula\s+vinculante\s+10/i.test(textLower)) topicos.push('SV 10')
+  if (/sumula\s+vinculante/i.test(textLower) && topicos.length === 0) topicos.push('Súmula Vinculante')
+
+  // Limpar filename
+  const filenameClean = fileName
+    .replace(/^\d{8}\s*-\s*/, '')
+    .replace(/^\d+\s*-\s*/, '')
+    .replace(/\.(docx?|pdf|txt|md|html|rtf)$/i, '')
+    .replace(/[_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Keywords
+  const stopWords = new Set(['de', 'da', 'do', 'e', 'a', 'o', 'que', 'para', 'em', 'no', 'na', 'os', 'as', 'um', 'uma', 'com', 'por', 'se', 'ou', 'dos', 'das', 'ao', 'aos', 'pelo', 'pela', 'pelos', 'pelas', 'sua', 'seu', 'ser', 'foi', 'são', 'ter', 'tem', 'mais', 'mas', 'como', 'sobre', 'entre', 'até', 'após', 'sem', 'será', 'esta', 'este', 'isso', 'isto', 'pode', 'podem', 'deve', 'devem', 'ainda', 'também', 'já', 'haver', 'nosso', 'nossa', 'seus', 'suas', 'meu', 'minha', 'nos', 'sob', 'contra', 'desde', 'perante', 'segundo', 'apenas', 'outro', 'outra', 'mesmo', 'mesma', 'tais', 'qual', 'quais', 'onde', 'cuja', 'cujas', 'cujo', 'cujos'])
+  const wordCount = new Map<string, number>()
+  const textWords = textLower.split(/[\s,;.\n\r:(){}"'.]+/).filter(w => w.length >= 4 && !stopWords.has(w))
+  for (const w of textWords) {
+    wordCount.set(w, (wordCount.get(w) || 0) + 1)
+  }
+  const keywords = Array.from(wordCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .map(([w]) => w)
+
+  const classification: Classification = {
+    natureza,
+    areaDireito: areas.length > 0 ? areas : ['Geral'],
+    assuntos: assuntos.length > 0 ? assuntos : [filenameClean.slice(0, 50) || 'Documento'],
+    tipoDocumento,
+    contexto: [filenameClean.slice(0, 100)],
+  }
+  const ementa: Ementa = {
+    tipo: tipoDocumento,
+    tipoDocumento,
+    assunto: filenameClean.slice(0, 50) || tipoDocumento,
+    sintese: 'Documento do acervo. Metadata extraída heuristicamente (análise LLM não disponível no momento).',
+    fundamentacao: 'Análise LLM não disponível. Metadata gerada via heurística a partir do filename e conteúdo.',
+    areas: areas.length > 0 ? areas : ['Geral'],
+    topicos: topicos.length > 0 ? topicos : [],
+    conclusao: 'Aguardando reanálise com LLM para resultados completos.',
+    keywords,
+  }
+  const keyPoints: KeyPoints = {
+    items: [
+      `Tipo detectado: ${tipoDocumento}`,
+      ...(areas.length > 0 ? [`Área: ${areas[0]}`] : []),
+      ...(assuntos.length > 0 ? [`Assunto principal: ${assuntos[0]}`] : []),
+      `Total de palavras-chave extraídas: ${keywords.length}`,
+    ],
+    reusableContent: '',
+  }
+  return { classification, ementa, keyPoints }
+}
+
+function getDefaultClassification(): Classification {
+  return { natureza: 'consultivo', areaDireito: [], assuntos: [], tipoDocumento: '', contexto: [] }
+}
+
+function getDefaultEmenta(): Ementa {
+  return { tipo: 'Outro', assunto: '', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] }
+}
 
 function normalizeClassification(raw: unknown): Classification {
   const obj = asRecord(raw)
@@ -335,13 +472,7 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function getDefaultClassification(): Classification {
-  return { natureza: 'consultivo', areaDireito: [], assuntos: [], tipoDocumento: '', contexto: [] }
-}
 
-function getDefaultEmenta(): Ementa {
-  return { tipo: 'Outro', assunto: '', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] }
-}
 
 /**
  * Extrai JSON do formato unificado {classification, ementa, key_points}.
