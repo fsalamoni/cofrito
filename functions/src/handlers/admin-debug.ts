@@ -22,17 +22,17 @@ export const adminDebugAcervo = onCall(
 
     // Status distribution
     const statusCount: Record<string, number> = {}
-    const sampleErrors: any[] = []
+    const sampleErrors: Array<{ docId: string; error: string; status: string }> = []
 
-    const docs: any[] = []
+    const docs: Array<Record<string, unknown>> = []
     snap.docs.forEach((d) => {
-      const data = d.data() as any
-      const status = data.status || '(sem status)'
+      const data = d.data() as Record<string, unknown>
+      const status = String(data.status ?? '(sem status)')
       statusCount[status] = (statusCount[status] || 0) + 1
 
       // Coletar amostras de erros
-      if (data.analysisError && sampleErrors.length < 3) {
-        sampleErrors.push({ docId: d.id, error: data.analysisError, status: data.status })
+      if (data.analysisError !== undefined && data.analysisError !== null && sampleErrors.length < 3) {
+        sampleErrors.push({ docId: d.id, error: String(data.analysisError ?? ''), status: String(data.status ?? '') })
       }
 
       docs.push({

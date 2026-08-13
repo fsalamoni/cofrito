@@ -12,7 +12,7 @@
  *
  * Documentos sao do acervo V1 (Fase 2a/2b): corpus/uploaded/{docId}
  */
-import { useState, useEffect, useRef, type DragEvent, type ChangeEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react'
 import {
   Upload, FileText, X, Check, Loader2, AlertCircle, Trash2, RefreshCw,
   Eye, Search, Filter, ChevronLeft, ChevronRight, X as CloseIcon,
@@ -111,16 +111,19 @@ export function DocumentCatalog() {
   const [reanalyzingBatch, setReanalyzingBatch] = useState(false)
   const [pollingActive, setPollingActive] = useState(false)
 
+  // Initial load
+  useEffect(() => {
+    loadDocs()
+    void loadPageSize()
+    // mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Viewer state
   const [selected, setSelected] = useState<DocumentListItem | null>(null)
   const [viewerTab, setViewerTab] = useState<'info' | 'json' | 'analise'>('info')
   const [fullDoc, setFullDoc] = useState<any>(null)
   const [loadingFull, setLoadingFull] = useState(false)
-
-  useEffect(() => {
-    loadDocs()
-    void loadPageSize()
-  }, [])
 
   // Polling: enquanto pollingActive, recarrega a cada 6s
   useEffect(() => {
@@ -129,6 +132,8 @@ export function DocumentCatalog() {
       void loadDocs()
     }, 6000)
     return () => clearInterval(interval)
+    // loadDocs intentionally omitted: we want a single interval per polling toggle
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollingActive])
 
   async function loadPageSize() {
@@ -154,7 +159,7 @@ export function DocumentCatalog() {
     }
   }
 
-  async function loadDocs() {
+  const loadDocs = useCallback(async () => {
     setLoading(true)
     try {
       const r = await api.adminListDocuments()
@@ -170,7 +175,7 @@ export function DocumentCatalog() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [pollingActive])
 
   // ── Upload (do DocumentUpload original) ─────────────────────────────
 
