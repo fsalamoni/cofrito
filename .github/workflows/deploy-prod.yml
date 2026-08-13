@@ -70,14 +70,14 @@ jobs:
       - name: Selecionar projeto de produção
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: npx -p firebase-tools firebase use prod --token "$FIREBASE_TOKEN"
+        run: npx -p firebase-tools firebase use cofrito --token "$FIREBASE_TOKEN"
 
       - name: Backup antes do deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           npx -p firebase-tools firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
-            --project prod \
+            --project cofrito \
             --only hosting \
             live:pre-deploy-$(date +%Y%m%d-%H%M%S)
 
