@@ -81,6 +81,13 @@ jobs:
       #       --project cofrito \
       #       live:pre-deploy-$(date +%Y%m%d-%H%M%S)
 
+      - name: Limpar functions legadas (3 problematicas)
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          npx -p firebase-tools firebase functions:delete --region southamerica-east1 --non-interactive --token "$FIREBASE_TOKEN" --force \
+            getProfile getLLMConfig getPublicResearchStatus || echo "(algumas functions podem nao existir, ok)"
+
       - name: Deploy
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
