@@ -13,6 +13,8 @@
  * Documentos sao do acervo V1 (Fase 2a/2b): corpus/uploaded/{docId}
  */
 import { useState, useEffect, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react'
+import { collection, onSnapshot, query, type Unsubscribe } from 'firebase/firestore'
+import { firestore } from '@/lib/firebase'
 import {
   Upload, FileText, X, Check, Loader2, AlertCircle, Trash2, RefreshCw,
   Eye, Search, Filter, ChevronLeft, ChevronRight, X as CloseIcon,
@@ -109,7 +111,6 @@ export function DocumentCatalog() {
   const [savingPageSize, setSavingPageSize] = useState(false)
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
   const [reanalyzingBatch, setReanalyzingBatch] = useState(false)
-  const [pollingActive, setPollingActive] = useState(false)
 
   // Initial load
   useEffect(() => {
@@ -125,16 +126,21 @@ export function DocumentCatalog() {
   const [fullDoc, setFullDoc] = useState<any>(null)
   const [loadingFull, setLoadingFull] = useState(false)
 
-  // Polling: enquanto pollingActive, recarrega a cada 6s
-  useEffect(() => {
-    if (!pollingActive) return
-    const interval = setInterval(() => {
-      void loadDocs()
-    }, 6000)
-    return () => clearInterval(interval)
-    // loadDocs intentionally omitted: we want a single interval per polling toggle
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollingActive])
+
+
+  // Wrapper para refresh manual (o listener onSnapshot cuida do reativo)
+  const loadDocs = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await api.adminListDocuments()
+      const list = (r.data as DocumentListItem[]) || []
+      setDocs(list)
+    } catch (err: any) {
+      console.error('Erro ao listar docs:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   async function loadPageSize() {
     try {
@@ -159,23 +165,64 @@ export function DocumentCatalog() {
     }
   }
 
-  const loadDocs = useCallback(async () => {
-    setLoading(true)
+  // Listener REATIVO do Firestore - atualiza a cada mudança de status
+  // (nao tem polling eterno - o Firestore envia update quando o doc muda)
+  useEffect(() => {
+    let unsubscribe: Unsubscribe | null = null
     try {
-      const r = await api.adminListDocuments()
-      const list = (r.data as DocumentListItem[]) || []
-      setDocs(list)
-      // Se nao tem mais nenhum em processando, desativa polling
-      if (pollingActive) {
-        const stillProcessing = list.some(d => d.status === 'analise_processando')
-        if (!stillProcessing) setPollingActive(false)
-      }
-    } catch (err: any) {
-      console.error('Erro ao listar docs:', err)
-    } finally {
+      const q = query(collection(firestore, 'corpus'))
+      unsubscribe = onSnapshot(q,
+        (snap) => {
+          const list: DocumentListItem[] = snap.docs.map(d => {
+            const data = d.data()
+            return {
+              id: d.id,
+              fileName: data.fileName,
+              title: data.title,
+              type: data.type,
+              area: data.area || [],
+              tags: data.tags || [],
+              status: data.status,
+              storageSize: data.storageSize,
+              originalSize: data.originalSize,
+              compressedSize: data.compressedSize,
+              compressionGain: data.compressionGain,
+              format: data.meta?.format,
+              pages: data.meta?.pages,
+              paragraphs: data.meta?.paragraphs,
+              compressionRatio: data.meta?.compressionRatio,
+              classification: data.classification || null,
+              ementa: data.ementa || null,
+              keyPoints: data.keyPoints || null,
+              analyzedAt: data.analyzedAt,
+              analysisError: data.analysisError,
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt,
+              createdBy: data.createdBy,
+            }
+          })
+          // Ordenar por updatedAt desc (mais recente primeiro)
+          list.sort((a, b) => {
+            const ta = (a.updatedAt as any)?.toMillis?.() ?? 0
+            const tb = (b.updatedAt as any)?.toMillis?.() ?? 0
+            return tb - ta
+          })
+          setDocs(list)
+          setLoading(false)
+        },
+        (err) => {
+          console.error('Erro no listener do corpus:', err)
+          setLoading(false)
+        },
+      )
+    } catch (err) {
+      console.error('Falha ao iniciar listener:', err)
       setLoading(false)
     }
-  }, [pollingActive])
+    return () => {
+      try { unsubscribe?.() } catch { /* ignore */ }
+    }
+  }, [])
 
   // ── Upload (do DocumentUpload original) ─────────────────────────────
 
@@ -340,14 +387,9 @@ export function DocumentCatalog() {
         }
       }
       alert(msg)
-      // Recarregar em 8s para ver o status 'analise_processando'
-      setTimeout(() => void loadDocs(), 8000)
+      // O listener onSnapshot ja atualiza a cada mudança de status
       // Limpar selecao se nao for selectAll
       if (!payload.selectAll) clearSelection()
-      // Ativar polling: recarregar a cada 6s ate nao ter mais docs em 'analise_processando'
-      if (data.queued > 0) {
-        setPollingActive(true)
-      }
     } catch (err: any) {
       alert('Erro ao re-analisar em batch: ' + (err.message || 'desconhecido'))
     } finally {
@@ -754,26 +796,6 @@ export function DocumentCatalog() {
               gap: 8,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {pollingActive && (
-                  <span
-                    className="pulse"
-                    style={{
-                      fontSize: 11,
-                      color: '#1e40af',
-                      background: '#dbeafe',
-                      padding: '3px 8px',
-                      borderRadius: 12,
-                      fontWeight: 500,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                    title="Recarregando a cada 6s para mostrar o status atualizado"
-                  >
-                    <span className="spin" style={{ display: 'inline-block', width: 10, height: 10, border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
-                    Atualizando automaticamente
-                  </span>
-                )}
                 <button
                   onClick={() => void loadDocs()}
                   disabled={loading}

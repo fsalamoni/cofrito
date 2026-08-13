@@ -164,31 +164,34 @@ describe('acervo-analyzer (agente unificado)', () => {
       expect(result.ementa.keywords).toContain('lai')
     })
 
-    it('retorna defaults se LLM falhar (throw)', async () => {
+    it('usa heuristica de fallback se LLM falhar (throw)', async () => {
       vi.mocked(generateWithProvider).mockRejectedValue(new Error('API indisponivel'))
       const result = await analyzeAcervoDoc(mockInput)
-      expect(result.classification.natureza).toBe('consultivo')
-      expect(result.ementa.tipo).toBe('Outro')
-      expect(result.keyPoints.items).toEqual([])
+      // Heuristica SEMPRE retorna dados uteis (nunca defaults vazios)
+      expect(result.classification.tipoDocumento).toBeTruthy()
+      expect(result.classification.areaDireito.length).toBeGreaterThan(0)
+      expect(result.ementa.tipo).toBeTruthy()
+      expect(result.ementa.keywords.length).toBeGreaterThan(0)
+      expect(result.keyPoints.items.length).toBeGreaterThan(0)
     })
 
-    it('retorna defaults se resposta nao tem JSON', async () => {
+    it('usa heuristica de fallback se resposta nao tem JSON', async () => {
       vi.mocked(generateWithProvider).mockResolvedValueOnce({
         content: 'Desculpe, nao consegui analisar o documento.',
         tokens: { input: 100, output: 200, total: 300 },
       })
       const result = await analyzeAcervoDoc(mockInput)
-      expect(result.classification.natureza).toBe('consultivo')
-      expect(result.ementa.tipo).toBe('Outro')
+      expect(result.classification.tipoDocumento).toBeTruthy()
+      expect(result.ementa.tipo).toBeTruthy()
     })
 
-    it('retorna defaults se JSON esta malformado', async () => {
+    it('usa heuristica de fallback se JSON esta malformado', async () => {
       vi.mocked(generateWithProvider).mockResolvedValueOnce({
         content: '{classification: "errado"}',  // aspas no lugar errado
         tokens: { input: 100, output: 200, total: 300 },
       })
       const result = await analyzeAcervoDoc(mockInput)
-      expect(result.classification.natureza).toBe('consultivo')
+      expect(result.classification.tipoDocumento).toBeTruthy()
     })
 
     it('reporta tokens consumidos', async () => {

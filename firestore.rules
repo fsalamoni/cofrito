@@ -140,7 +140,7 @@ service cloud.firestore {
     // Escrita: só admin (master ou não).
 
     match /corpus/{document=**} {
-      allow read: if hasAcceptedConsent();
+      allow read: if hasAcceptedConsent() || isAdmin();
       allow write: if isAdmin();
     }
 
