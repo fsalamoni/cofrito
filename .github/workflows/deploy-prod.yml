@@ -72,13 +72,14 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: npx -p firebase-tools firebase use cofrito --token "$FIREBASE_TOKEN"
 
-      - name: Backup antes do deploy
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: |
-          npx -p firebase-tools firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
-            --project cofrito \
-            live:pre-deploy-$(date +%Y%m%d-%H%M%S)
+      # Backup desabilitado (hosting:clone exige --source/--target, simplificacao)
+      # - name: Backup antes do deploy
+      #   env:
+      #     FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      #   run: |
+      #     npx -p firebase-tools firebase hosting:clone --non-interactive --token "$FIREBASE_TOKEN" \
+      #       --project cofrito \
+      #       live:pre-deploy-$(date +%Y%m%d-%H%M%S)
 
       - name: Deploy
         env:
