@@ -5,7 +5,16 @@
   "targets": {
     "cofrito": {
       "hosting": {
-        "cofrito": ["cofrito"]
+        "cofrito": [
+          "cofrito"
+        ]
+      }
+    },
+    "prod": {
+      "hosting": {
+        "cofrito": [
+          "cofrito"
+        ]
       }
     }
   }
