@@ -67,3 +67,19 @@
     }
   }
 }
+
+/* Animations */
+@keyframes cofrito-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: cofrito-spin 1s linear infinite;
+}
+@keyframes cofrito-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.pulse {
+  animation: cofrito-pulse 1.5s ease-in-out infinite;
+}

@@ -55,8 +55,9 @@ export const adminReanalyzeBatch = onCall(
 
     if (selectAll) {
       // Buscar todos os docs ativos (limit 500 — se tiver mais, o admin precisa filtrar)
+      // Pega TODOS os docs (qualquer status). Se tiver mais que 500, trunca.
+      // (nao filtra por status porque o acervo tem docs antigos com status 'ativo' ou outros)
       const snap = await db.collection('corpus')
-        .where('status', 'in', ['analisado', 'analise_pendente', 'erro_analise', 'arquivo_nao_suportado', 'analise_processando'])
         .limit(500)
         .get()
       docsToProcess = snap.docs.map(d => ({ docId: d.id, docRef: d.ref }))

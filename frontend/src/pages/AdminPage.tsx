@@ -705,7 +705,7 @@ const signOutBtnStyle: React.CSSProperties = {
 
 const mainLayoutStyle: React.CSSProperties = {
   display: 'flex',
-  maxWidth: 1280,
+  maxWidth: 1800,
   margin: '0 auto',
   minHeight: 'calc(100vh - 73px)',
 }
