@@ -1290,8 +1290,13 @@ function DocumentoTab({ doc }: { doc: DocumentListItem; full?: any }) {
   )
 }
 
-function TextoTab({ fullText }: { fullText: string | null; doc?: DocumentListItem; full?: any }) {
+function TextoTab({ fullText, doc }: { fullText: string | null; doc?: DocumentListItem; full?: any }) {
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
+
   if (fullText === null) {
     return (
       <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>
@@ -1303,9 +1308,11 @@ function TextoTab({ fullText }: { fullText: string | null; doc?: DocumentListIte
     return <div style={{ padding: 16, color: '#6b7280' }}>Texto nao disponivel para este documento.</div>
   }
 
+  const value = editing ? draft : fullText
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(fullText)
+      await navigator.clipboard.writeText(value)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
@@ -1313,42 +1320,77 @@ function TextoTab({ fullText }: { fullText: string | null; doc?: DocumentListIte
     }
   }
 
+  const startEdit = () => { setDraft(fullText); setEditing(true); setFeedback(null) }
+  const cancelEdit = () => { setEditing(false); setFeedback(null) }
+
+  const save = async () => {
+    if (!doc) return
+    setSaving(true)
+    setFeedback(null)
+    try {
+      const r = await api.adminSaveDocumentTextContent(doc.id, draft)
+      setFeedback({ ok: true, msg: `Salvo (${r.data.paragraphs} parágrafos). Reanalise para atualizar a busca.` })
+      setEditing(false)
+    } catch (err: any) {
+      setFeedback({ ok: false, msg: err?.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const btn = (bg: string): React.CSSProperties => ({
+    padding: '6px 12px', background: bg, color: '#fff', border: 'none', borderRadius: 6,
+    fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit',
+  })
+
   return (
     <div>
-      <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button
-          onClick={handleCopy}
-          style={{
-            padding: '6px 12px',
-            background: copied ? '#10b981' : '#1a4d8f',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            fontSize: 12,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
+      <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={handleCopy} style={btn(copied ? '#10b981' : '#1a4d8f')}>
           {copied ? <><Check size={14} /> Copiado</> : 'Copiar texto'}
         </button>
+        {!editing && doc && (
+          <button onClick={startEdit} style={btn('#6d28d9')}>Editar texto</button>
+        )}
+        {editing && (
+          <>
+            <button onClick={save} disabled={saving} style={btn('#16a34a')}>
+              {saving ? <Loader2 size={14} className="spin" /> : <Check size={14} />} Salvar
+            </button>
+            <button onClick={cancelEdit} disabled={saving} style={btn('#6b7280')}>Cancelar</button>
+          </>
+        )}
         <span style={{ fontSize: 12, color: '#6b7280' }}>
-          {fullText.length.toLocaleString('pt-BR')} caracteres · texto reconstruido sem quebras de pagina
+          {value.length.toLocaleString('pt-BR')} caracteres · texto reconstruido sem quebras de pagina
         </span>
       </div>
+      {feedback && (
+        <div style={{
+          marginBottom: 8, padding: 8, borderRadius: 6, fontSize: 12,
+          background: feedback.ok ? '#d1fae5' : '#fee2e2', color: feedback.ok ? '#065f46' : '#991b1b',
+        }}>
+          {feedback.msg}
+        </div>
+      )}
+      {editing && (
+        <div style={{ marginBottom: 8, fontSize: 11, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: 8 }}>
+          Separe os parágrafos com uma linha em branco. Ao salvar, o documento é reconstruído
+          preservando os parágrafos (sem quebras de página).
+        </div>
+      )}
       <textarea
-        readOnly
-        value={fullText}
+        readOnly={!editing}
+        value={value}
+        onChange={(e) => setDraft(e.target.value)}
         style={{
           width: '100%',
-          height: 'calc(100vh - 220px)',
-          minHeight: 600,
+          height: 'calc(100vh - 260px)',
+          minHeight: 560,
           fontSize: 13,
           fontFamily: 'ui-monospace, SFMono-Regular, monospace',
           lineHeight: 1.6,
           padding: 16,
-          border: '1px solid #e5e7eb',
+          border: editing ? '2px solid #6d28d9' : '1px solid #e5e7eb',
           borderRadius: 6,
           background: '#ffffff',
           color: '#0f172a',

@@ -63,6 +63,11 @@ export const api = {
       functions,
       'adminGetDocumentDownloadUrl',
     )({ docId }),
+  adminSaveDocumentTextContent: (docId: string, fullText: string) =>
+    httpsCallable<{ docId: string; fullText: string }, { ok: boolean; paragraphs: number; chars: number }>(
+      functions,
+      'adminSaveDocumentTextContent',
+    )({ docId, fullText }),
   adminMigrateToV2: () =>
     httpsCallable<void, {
       ok: boolean

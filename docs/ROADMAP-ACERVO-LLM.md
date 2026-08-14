@@ -131,11 +131,24 @@ Causas reais dos problemas relatados:
 - ℹ️ Reprocessar o acervo existente: usar o batch já existente (`adminReanalyzeBatch` /
   fila em "Upload de Documentos") — nenhum código novo necessário.
 
-## Fase 4 — Visualizador / Editor do documento 🔜
+## Fase 4 — Visualizador / Editor do documento 🟡 (parcial nesta entrega)
 
-- 🔜 Visualização do **original** (PDF/DOCX) + visualização em **editor web** a partir
-  do JSON v2 reconstruído (parágrafos íntegros, seções, cópia de trechos com formatação).
-- 🔜 Edição do texto reconstruído pelo admin, com persistência no JSON v2.
+- 🧩 Visualização do **original** (PDF via URL assinada) e do **texto reconstruído**
+  já existiam como abas do viewer (Documento / Texto).
+- 🐛 **Bug corrigido:** `adminGetDocumentTextContent` e `adminGetDocumentDownloadUrl`
+  estavam **definidos mas não exportados** em `index.ts` → não eram deployados, então
+  as abas "Texto"/"Documento" falhavam em produção. Agora exportados.
+- ✅ **Edição do texto reconstruído** (`adminSaveDocumentTextContent`): o admin edita o
+  texto na aba "Texto" e salva; o backend **reconstrói o JSON v2** (parágrafos íntegros,
+  sem quebras de página) a partir do texto editado e persiste em `textContent`.
+- ✅ Cópia de trecho já disponível (botão "Copiar texto").
+
+**Pendente (Fase 4b)**
+
+- 🔜 Editor **rich-text** (negrito/itálico/listas) e cópia com formatação — hoje o
+  editor é texto integral com parágrafos preservados (atende leitura/edição, sem
+  formatação rica).
+- 🔜 Re-indexar automaticamente a busca após a edição (hoje: reanalisar/reingestar).
 
 ## Fase 5 — Pastas e Configurações de Pesquisa 🔜
 

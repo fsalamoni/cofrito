@@ -83,6 +83,9 @@ export {
   adminDeleteDocument,
   adminGetDocument,
   adminReanalyzeDocument,
+  adminGetDocumentTextContent,
+  adminGetDocumentDownloadUrl,
+  adminSaveDocumentTextContent,
 } from './handlers/admin-documents'
 export * from './handlers/admin-reanalyze'
 export * from './handlers/admin-debug'

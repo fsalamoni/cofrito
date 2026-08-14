@@ -824,6 +824,53 @@ export const adminGetDocumentTextContent = onCall(
 )
 
 /**
+ * Salva o texto reconstruido editado pelo admin.
+ * Rebuild do JSON v2 (parágrafos íntegros) a partir do texto editado e persiste
+ * em `textContent`. Não mexe no `textOriginal` (extração crua original).
+ */
+export const adminSaveDocumentTextContent = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 120, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId, fullText } = (request.data || {}) as { docId: string; fullText: string }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    if (typeof fullText !== 'string') throw new HttpsError('invalid-argument', 'fullText obrigatorio')
+    const db = getFirestore()
+    const docRef = db.doc(`corpus/${docId}`)
+    const docSnap = await docRef.get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+    const data = docSnap.data() || {}
+    const fileName = (data.fileName as string) || docId
+    const pageCount = ((data.meta as Record<string, unknown> | undefined)?.pages as number | undefined)
+    // Reconstrói o JSON v2 a partir do texto editado (mantém parágrafos íntegros).
+    const structured = textToStructuredJson(fullText.slice(0, 900_000), fileName, pageCount)
+    const textContentJson = serializeStructuredJson(structured)
+    await docRef.set(
+      {
+        textContent: textContentJson,
+        storageFormat: 'json-v1',
+        textEditedAt: FieldValue.serverTimestamp(),
+        textEditedBy: request.auth.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    )
+    logger.info('adminSaveDocumentTextContent.done', {
+      docId,
+      uid: request.auth.uid,
+      paragraphs: structured.meta.paragraphs,
+      chars: fullText.length,
+    })
+    return {
+      ok: true,
+      paragraphs: structured.meta.paragraphs,
+      chars: structured.fullText.length,
+    }
+  },
+)
+
+/**
  * Gera URL assinada para download do PDF original no Storage.
  */
 export const adminGetDocumentDownloadUrl = onCall(
