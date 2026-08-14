@@ -1,39 +1,42 @@
 /**
  * Admin Re-analyze Batch + Page Size Config.
  *
- * - adminReanalyzeBatch: refaz a analise (classification + ementa + keyPoints)
- *   de N documentos selecionados OU todos.
- *   Usa o LLM config global do admin (mesmo do upload).
- *   Processa em background com mutex por docId (evita duplicacao).
+ * - adminReanalyzeBatch: enfileira N documentos para re-analise via
+ *   FILA OFICIAL (1-por-1, 1-step-por-vez, sem paralelismo).
+ *   O trigger onProcessingQueueUpdated processa cada step sequencialmente.
+ *   O status do doc fica 'analise_pendente' ate o trigger pegar; depois
+ *   'analise_processando' durante a execucao; 'analisado' ou 'erro_analise' no fim.
  *
  * - adminSetPageSize / adminGetPageSize: configura o tamanho da pagina
  *   do DocumentCatalog (20, 50 ou 100).
  *   Stored em: admin-config/acervo-pagination
  *
- *  IMPORTANTE: este handler eh a unica fonte oficial de "refazer analise"
- *  do acervo. Nao duplicar essa logica em outros lugares.
+ *  IMPORTANTE: este handler usa SEMPRE a fila oficial (enqueueDocsForProcessing).
+ *  Nao dispara runAnalysisInBackground em paralelo (causava todos os docs
+ *  ficarem "Processando" simultaneamente).
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
-import { FieldValue } from 'firebase-admin/firestore'
 import { getFirestore } from '../services/firestore'
 import { assertAdminMaster } from '../middleware/auth'
-import { runAnalysisInBackground } from './admin-documents'
+import { enqueueDocsForProcessing } from './admin-process-queue'
 import { loadConfigDoc, saveConfigDoc } from '../services/config-store'
 
 const DEFAULT_PAGE_SIZE = 20
 const VALID_PAGE_SIZES = [20, 50, 100]
 
 /**
- * Refaz a analise (classification + ementa + keyPoints) de N documentos.
+ * Refaz a analise (json + classification + ementa + keyPoints) de N documentos
+ * via FILA OFICIAL (1-por-1, sequencial).
+ *
  *  - docIds: array de IDs (se vazio + selectAll=true, refaz todos os ativos)
  *  - selectAll: se true, processa todos os docs ativos
  *
  * Retorna: lista de docIds que foram enfileirados.
- * Cada doc eh processado em background (nao bloqueia a response).
+ * Cada doc eh processado em background pelo trigger (NAO bloqueia a response).
  */
 export const adminReanalyzeBatch = onCall(
-  { cors: true, enforceAppCheck: false, timeoutSeconds: 540, memory: '1GiB' },
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 60 },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -51,80 +54,42 @@ export const adminReanalyzeBatch = onCall(
     }
 
     const db = getFirestore()
-    let docsToProcess: { docId: string; docRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData> }[] = []
+    let targetDocIds: string[] = []
 
     if (selectAll) {
-      // Buscar todos os docs ativos (limit 500 — se tiver mais, o admin precisa filtrar)
-      // Pega TODOS os docs (qualquer status). Se tiver mais que 500, trunca.
-      // (nao filtra por status porque o acervo tem docs antigos com status 'ativo' ou outros)
-      const snap = await db.collection('corpus')
-        .limit(500)
-        .get()
-      docsToProcess = snap.docs.map(d => ({ docId: d.id, docRef: d.ref }))
-      logger.info('adminReanalyzeBatch.selectAll', { count: docsToProcess.length, uid: request.auth.uid })
+      const snap = await db.collection('corpus').limit(500).get()
+      targetDocIds = snap.docs.map(d => d.id)
+      logger.info('adminReanalyzeBatch.selectAll', { count: targetDocIds.length, uid: request.auth.uid })
     } else {
-      // Validar que cada docId existe
       for (const docId of docIds!) {
-        const docRef = db.doc(`corpus/${docId}`)
-        const snap = await docRef.get()
-        if (!snap.exists) {
-          logger.warn('adminReanalyzeBatch.doc-not-found', { docId, uid: request.auth.uid })
-          continue
-        }
-        docsToProcess.push({ docId, docRef })
+        const snap = await db.doc(`corpus/${docId}`).get()
+        if (snap.exists) targetDocIds.push(docId)
       }
-      logger.info('adminReanalyzeBatch.specific', { count: docsToProcess.length, uid: request.auth.uid })
+      logger.info('adminReanalyzeBatch.specific', { count: targetDocIds.length, uid: request.auth.uid })
     }
 
-    if (docsToProcess.length === 0) {
+    if (targetDocIds.length === 0) {
       return { ok: true, queued: 0, message: 'Nenhum documento encontrado para re-analisar' }
     }
 
-    // Para cada doc: marcar como analise_processando + disparar runAnalysisInBackground
-    const queued: string[] = []
-    const failed: { docId: string; reason: string }[] = []
-    for (const { docId, docRef } of docsToProcess) {
-      try {
-        const snap = await docRef.get()
-        const data = snap.data() || {}
-        const text = (data.textOriginal as string) || (data.textContent as string) || ''
-        if (!text) {
-          failed.push({ docId, reason: 'sem texto (textOriginal/textContent vazio)' })
-          continue
-        }
-        // Marcar como processando
-        await docRef.set(
-          { status: 'analise_processando', analysisStartedAt: FieldValue.serverTimestamp() },
-          { merge: true },
-        )
-        // Disparar em background
-        void runAnalysisInBackground({
-          uid: request.auth.uid,
-          docId,
-          fileName: (data.fileName as string) || docId,
-          text: text.slice(0, 50_000),
-          docRef,
-        })
-        queued.push(docId)
-      } catch (err) {
-        logger.error('adminReanalyzeBatch.queue-failed', { docId, err: (err as Error).message })
-        failed.push({ docId, reason: (err as Error).message })
-      }
-    }
+    // Enfileira na fila oficial (1-por-1, sem paralelismo).
+    // O trigger onProcessingQueueUpdated processa cada doc sequencialmente.
+    const result = await enqueueDocsForProcessing(targetDocIds, request.auth.uid)
 
     logger.info('adminReanalyzeBatch.done', {
-      queued: queued.length,
-      failed: failed.length,
+      queued: result.queued,
+      totalInQueue: result.totalInQueue,
       uid: request.auth.uid,
     })
 
     return {
       ok: true,
-      queued: queued.length,
-      failed: failed.length,
-      queuedIds: queued,
-      failures: failed,
-      message: `${queued.length} documento(s) enfileirado(s) para re-análise em background`,
+      queued: result.queued,
+      failed: 0,
+      queuedIds: result.docIdsAdded,
+      failures: [],
+      totalInQueue: result.totalInQueue,
+      message: `${result.queued} documento(s) adicionado(s) à fila. O processamento é sequencial (1 por vez).`,
     }
   },
 )

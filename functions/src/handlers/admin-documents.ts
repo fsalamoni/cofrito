@@ -229,16 +229,14 @@ export const adminUploadDocument = onCall(
       }
     }
 
-    // 6. Disparar analyzeAcervoDoc em background (Fase 2b)
-    // Os 3 agentes LLM (classificador, ementa, keyPoints) rodam em paralelo.
-    // O resultado e gravado no Firestore quando completam.
-    void runAnalysisInBackground({
-      uid: request.auth!.uid,
-      docId,
-      fileName: safeName,
-      text: text.slice(0, 50_000),  // primeiros 50k chars (LLM nao precisa de mais)
-      docRef,
-    })
+    // 6. Enfileirar na fila oficial (1-por-1, sem paralelismo).
+    // O trigger onProcessingQueueUpdated processa este doc sequencialmente.
+    try {
+      const { enqueueDocsForProcessing } = await import('./admin-process-queue')
+      await enqueueDocsForProcessing([docId], request.auth!.uid)
+    } catch (err) {
+      logger.warn('adminUploadDocument.enqueueFailed (continuando)', { docId, err: (err as Error).message })
+    }
 
     return {
       ok: true,
@@ -250,7 +248,7 @@ export const adminUploadDocument = onCall(
       paragraphs: structured.meta.paragraphs,
       compressionRatio: structured.meta.compressionRatio,
       chunksCreated: ingestResult.chunksCreated,
-      message: `Documento salvo e estruturado em JSON v1 (${structured.meta.paragraphs} paragrafos, ${Math.round(structured.meta.compressionRatio * 100)}% compressao). Análise automatica sera iniciada na Fase 2b.`,
+      message: `Documento salvo e estruturado em JSON v1 (${structured.meta.paragraphs} paragrafos, ${Math.round(structured.meta.compressionRatio * 100)}% compressao). Adicionado à fila de análise.`,
     }
     } catch (err: any) {
       // Error handling robusto: log detalhado + throw HttpsError explicito
@@ -733,9 +731,14 @@ export async function runAnalysisInBackground(input: {
 
 /**
  * Resolve o LLM config para analise:
- *  1. admin-config/llm (master)
- *  2. GEMINI_API_KEY do ambiente
- *  3. fallback: stub
+ *  1. admin-config/llm (master) — fonte canonica (OpenRouter, OpenAI, Anthropic, Custom, etc.)
+ *  2. se nao houver config ou for Gemini explicito do env: retorna null
+ *     (forca heuristica de fallback em acervo-analyzer)
+ *
+ * IMPORTANTE: Gemini/Google foi DESATIVADO nesta versao (decisao do projeto).
+ * Nao fazemos fallback automatico para process.env.GEMINI_API_KEY.
+ * Se o admin quiser usar Gemini, deve configurar explicitamente em
+ * admin-config/llm com provider='google' e sua propria API key.
  */
 export async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
   provider: 'openrouter' | 'google' | 'openai' | 'anthropic' | 'custom'
@@ -765,14 +768,8 @@ export async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
       }
     }
   }
-  // Fallback: GEMINI_API_KEY
-  if (process.env.GEMINI_API_KEY) {
-    return {
-      provider: 'google',
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-      apiKey: process.env.GEMINI_API_KEY,
-    }
-  }
+  // Sem config global: retorna null (usa heuristica).
+  // Gemini automatico via env foi REMOVIDO (decisao do projeto).
   return null
 }
 
@@ -945,10 +942,10 @@ export const adminGetDocumentDownloadUrl = onCall(
   },
 )
 
-// ── Re-analisar documento (dispara analyzeAcervoDoc novamente) ─────────
+// ── Re-analisar documento (enfileira na fila oficial 1-por-1) ─────────
 
 export const adminReanalyzeDocument = onCall(
-  { cors: true, enforceAppCheck: false },
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 60 },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -960,20 +957,18 @@ export const adminReanalyzeDocument = onCall(
     const data = docSnap.data() || {}
     const text = (data.textOriginal as string) || (data.textContent as string) || ''
     if (!text) throw new HttpsError('failed-precondition', 'Documento sem texto para analisar')
-    // Marcar como processando
-    await docSnap.ref.set(
-      { status: 'analise_processando', analysisStartedAt: FieldValue.serverTimestamp() },
-      { merge: true },
-    )
-    // Disparar em background
-    void runAnalysisInBackground({
-      uid: request.auth!.uid,
+
+    // Enfileira na fila oficial (1-por-1, sem paralelismo).
+    // O trigger onProcessingQueueUpdated processa este doc sequencialmente.
+    const { enqueueDocsForProcessing } = await import('./admin-process-queue')
+    const result = await enqueueDocsForProcessing([docId], request.auth.uid)
+
+    return {
+      ok: true,
       docId,
-      fileName: (data.fileName as string) || 'documento',
-      text: text.slice(0, 50_000),
-      docRef: docSnap.ref,
-    })
-    return { ok: true, docId, message: 'Re-analise iniciada em background' }
+      totalInQueue: result.totalInQueue,
+      message: `Documento adicionado à fila (1 de ${result.totalInQueue}). O processamento é sequencial.`,
+    }
   },
 )
 

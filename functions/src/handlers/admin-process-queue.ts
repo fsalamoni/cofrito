@@ -208,7 +208,94 @@ export const onProcessingQueueUpdated = onDocumentUpdated(
   },
 )
 
-// ── 2) Start: adiciona docs a fila (NAO processa diretamente) ──────────
+// ── 2) Helper compartilhado: enfileirar docs para processamento ─────────
+
+/**
+ * Adiciona docIds a fila de processamento encadeado (1-por-1, 1-step-por-vez).
+ *
+ * Comportamento:
+ *  - Reseta o processingState de cada doc para 'queued'
+ *  - Atualiza admin-config/processing-queue com status='running' e docIds[]
+ *  - Limpa lock + seta lastTickAt=now para forcar o trigger a rodar
+ *  - NAO processa nada diretamente: o trigger onProcessingQueueUpdated pega
+ *
+ * Esta funcao e' compartilhada entre:
+ *  - adminStartQueue (onCall - endpoint publico)
+ *  - adminReanalyzeBatch (onCall)
+ *  - adminReanalyzeDocument (onCall)
+ *  - adminUploadDocument (apos upload, para ja' entrar na fila)
+ */
+export async function enqueueDocsForProcessing(
+  docIds: string[],
+  uid: string,
+): Promise<{ queued: number; totalInQueue: number; docIdsAdded: string[] }> {
+  if (docIds.length === 0) {
+    return { queued: 0, totalInQueue: 0, docIdsAdded: [] }
+  }
+
+  const db = getFirestore()
+
+  // Resetar estado dos docs para 'queued'
+  const batch = db.batch()
+  for (const docId of docIds) {
+    const docRef = db.doc(`corpus/${docId}`)
+    batch.set(
+      docRef,
+      {
+        status: 'analise_pendente',  // visivel ao usuario; vira 'analise_processando' quando o trigger pegar
+        processingState: {
+          step: 'queued' as ProcessingStep,
+          stepLabel: STEP_LABELS.queued,
+          queuedAt: FieldValue.serverTimestamp() as FirebaseFirestore.FieldValue,
+          error: null,
+          failedStep: null,
+          retryCount: 0,
+        } as unknown as ProcessingState,
+      },
+      { merge: true },
+    )
+  }
+  await batch.commit()
+
+  // Atualizar fila
+  const queueRef = db.doc(QUEUE_DOC_PATH)
+  const queueSnap = await queueRef.get()
+  const existing = queueSnap.exists ? (queueSnap.data() as QueueState) : null
+  const existingIds = existing?.docIds || []
+  const newDocIds = Array.from(new Set([...existingIds, ...docIds]))
+
+  const newQueue: Partial<QueueState> = {
+    docIds: newDocIds,
+    currentDocId: existing?.currentDocId || docIds[0],
+    currentStep: existing?.currentStep || 'queued',
+    status: 'running',
+    finishedAt: null,
+    lastTickAt: new Date(),  // garante que o trigger pegue IMEDIATAMENTE
+    processing: false,
+    totalDocs: (existing?.totalDocs || 0) + docIds.length,
+    doneCount: existing?.doneCount || 0,
+    errorCount: existing?.errorCount || 0,
+    startedBy: uid,
+  }
+  if (!existing?.startedAt) {
+    newQueue.startedAt = new Date()
+  }
+  await queueRef.set(newQueue, { merge: true })
+
+  logger.info('enqueueDocsForProcessing.queued', {
+    added: docIds.length,
+    totalInQueue: newDocIds.length,
+    uid,
+  })
+
+  return {
+    queued: docIds.length,
+    totalInQueue: newDocIds.length,
+    docIdsAdded: docIds,
+  }
+}
+
+// ── 3) Start: endpoint publico para enfileirar docs ─────────────────────
 
 /**
  * Apenas enfileira os docs e marca status='running'.
@@ -250,56 +337,13 @@ export const adminStartQueue = onCall(
       return { ok: true, queued: 0, message: 'Nenhum documento encontrado' }
     }
 
-    // Resetar estado dos docs
-    const batch = db.batch()
-    for (const docId of targetDocIds) {
-      const docRef = db.doc(`corpus/${docId}`)
-      batch.set(
-        docRef,
-        {
-          processingState: {
-            step: 'queued' as ProcessingStep,
-            stepLabel: STEP_LABELS.queued,
-            queuedAt: FieldValue.serverTimestamp() as FirebaseFirestore.FieldValue,
-            error: null,
-            failedStep: null,
-            retryCount: 0,
-          } as unknown as ProcessingState,
-        },
-        { merge: true },
-      )
-    }
-    await batch.commit()
-
-    // Atualizar fila
-    const queueRef = db.doc(QUEUE_DOC_PATH)
-    const queueSnap = await queueRef.get()
-    const existing = queueSnap.exists ? (queueSnap.data() as QueueState) : null
-    const newQueue: Partial<QueueState> = {
-      docIds: Array.from(new Set([...(existing?.docIds || []), ...targetDocIds])),
-      currentDocId: existing?.currentDocId || targetDocIds[0],
-      currentStep: existing?.currentStep || 'queued',
-      status: 'running',
-      finishedAt: null,
-      lastTickAt: new Date(),  // forca o trigger a rodar imediatamente
-      processing: false,
-      totalDocs: (existing?.totalDocs || 0) + targetDocIds.length,
-      doneCount: existing?.doneCount || 0,
-      errorCount: existing?.errorCount || 0,
-      startedBy: request.auth.uid,
-    }
-    if (!existing?.startedAt) {
-      newQueue.startedAt = new Date()
-    }
-    await queueRef.set(newQueue, { merge: true })
-
-    logger.info('adminStartQueue.queued', { count: targetDocIds.length, uid: request.auth.uid })
+    const result = await enqueueDocsForProcessing(targetDocIds, request.auth.uid)
 
     return {
       ok: true,
-      queued: targetDocIds.length,
-      totalInQueue: newQueue.docIds!.length,
-      message: `${targetDocIds.length} documento(s) adicionado(s) à fila de processamento`,
+      queued: result.queued,
+      totalInQueue: result.totalInQueue,
+      message: `${result.queued} documento(s) adicionado(s) à fila de processamento`,
     }
   },
 )
@@ -479,6 +523,23 @@ async function processSingleStep(): Promise<{
         stepLabel: STEP_LABELS.queued,
       }
     const step: ProcessingStep = processingState.step || 'queued'
+
+    // Marca o doc como 'analise_processando' (visivel na UI) ao entrar em execucao.
+    // Garante que apenas o doc atual fica com esse status (demais ficam 'analise_pendente').
+    try {
+      const currentStatus = (docData.status as string) || ''
+      if (currentStatus !== 'analise_processando') {
+        await currentDocRef.set(
+          {
+            status: 'analise_processando',
+            analysisStartedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+    } catch (err) {
+      logger.warn('processSingleStep.markProcessandoFailed', { docId: currentDocId, err: String(err) })
+    }
 
     // Se step ja' e' completed, ir pro proximo doc
     if (step === 'completed') {
