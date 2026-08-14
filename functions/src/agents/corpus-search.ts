@@ -43,6 +43,10 @@ export interface CorpusDocMetadata {
   ementa?: {
     tipo?: string
     tipoDocumento?: string
+    numero?: string
+    data?: string
+    autor?: string
+    destinatario?: string
     assunto?: string
     sintese?: string
     fundamentacao?: string
@@ -50,9 +54,13 @@ export interface CorpusDocMetadata {
     topicos?: string[]
     conclusao?: string
     keywords?: string[]
+    materias?: string[]
   } | null
   keyPoints?: {
-    items?: string[]
+    items?: Array<{ categoria?: string; titulo?: string; descricao?: string; tags?: string[] }>
+    pessoasEnvolvidas?: Array<{ nome?: string; cargo?: string; papel?: string; contexto?: string }>
+    relacionamentos?: Array<{ tipo?: string; grau?: string; pessoas?: string[]; descricao?: string }>
+    citacoesJuridicas?: Array<{ tipo?: string; referencia?: string; interpretacao?: string }>
     reusableContent?: string
   } | null
   createdAt?: string
@@ -182,15 +190,43 @@ export async function searchCorpusFourLevel(input: FourLevelSearchInput): Promis
   const l1ById = new Map(l1Scored.map(s => [s.doc.id, s.score]))
   for (const doc of level1Matched) {
     let score = l1ById.get(doc.id) || 0
+    // L2a: keyPoints.items (formato novo - objetos com titulo/descricao)
     if (doc.keyPoints?.items && doc.keyPoints.items.length > 0) {
-      const kpLower = doc.keyPoints.items.map(i => i.toLowerCase())
-      const kpMatches = allQueryTokens.filter(t => kpLower.some(i => i.includes(t))).length
+      const kpText = doc.keyPoints.items
+        .map(i => `${i.titulo || ''} ${i.descricao || ''} ${(i.tags || []).join(' ')}`)
+        .join(' ')
+        .toLowerCase()
+      const kpMatches = allQueryTokens.filter(t => kpText.includes(t)).length
       score += kpMatches * 3
     }
+    // L2b: keyPoints.pessoasEnvolvidas
+    if (doc.keyPoints?.pessoasEnvolvidas && doc.keyPoints.pessoasEnvolvidas.length > 0) {
+      const pessoasText = doc.keyPoints.pessoasEnvolvidas
+        .map(p => `${p.nome || ''} ${p.cargo || ''} ${p.papel || ''} ${p.contexto || ''}`)
+        .join(' ')
+        .toLowerCase()
+      const pMatches = allQueryTokens.filter(t => pessoasText.includes(t)).length
+      score += pMatches * 2
+    }
+    // L2c: keyPoints.citacoesJuridicas
+    if (doc.keyPoints?.citacoesJuridicas && doc.keyPoints.citacoesJuridicas.length > 0) {
+      const citText = doc.keyPoints.citacoesJuridicas
+        .map(c => `${c.referencia || ''} ${c.interpretacao || ''}`)
+        .join(' ')
+        .toLowerCase()
+      const cMatches = allQueryTokens.filter(t => citText.includes(t)).length
+      score += cMatches * 2
+    }
+    // L2d: ementa.keywords + ementa.materias
     if (doc.ementa?.keywords && doc.ementa.keywords.length > 0) {
       const kwLower = doc.ementa.keywords.map(k => k.toLowerCase())
       const kwMatches = allQueryTokens.filter(t => kwLower.includes(t) || kwLower.some(k => k.includes(t))).length
       score += kwMatches
+    }
+    if (doc.ementa?.materias && doc.ementa.materias.length > 0) {
+      const matLower = doc.ementa.materias.map(m => m.toLowerCase())
+      const matMatches = allQueryTokens.filter(t => matLower.includes(t) || matLower.some(m => m.includes(t))).length
+      score += matMatches * 2
     }
     if (score > 0) l2Scored.push({ doc, score })
   }

@@ -4,6 +4,11 @@
  * ARQUITETURA: agente unico com 3 skills (classification + ementa + keyPoints)
  * executadas em UMA UNICA chamada LLM, retornando JSON estruturado.
  *
+ * Skills:
+ *  - classification: tags estruturadas (natureza, area, assuntos, tipo, contexto)
+ *  - ementa: ementa JURIDICA completa (sintese, fundamentacao, conclusao, materias, topicos)
+ *  - keyPoints: pontos relevantes DETALHADOS (pessoas, vinculos, fundamentos, citacoes, decisao)
+ *
  * Por que agente unico (em vez de 3 agentes paralelos)?
  *  - 1 round-trip a API (em vez de 3) = ~3x menos latencia
  *  - texto enviado 1 vez = ~3x menos tokens de input
@@ -27,23 +32,112 @@ export interface Classification {
   contexto: string[]
 }
 
+/**
+ * Ementa juridica completa do documento.
+ * Estrutura inspirada na pratica juridica brasileira (CAO/MP-RS).
+ */
 export interface Ementa {
+  /** Tipo generico do documento (Parecer, Sentenca, Acordao, etc) */
   tipo: string
-  /** Ex: "Parecer", "Sentença", "Acórdão", "Despacho", "Nota Técnica", "Notícia", "Manifestação", "Artigo", "Doutrina", "Livro" */
+  /** Tipo especifico (parecer informativo, sentenca absolutoria, etc) */
   tipoDocumento?: string
+  /** Numero do documento (se houver) */
+  numero?: string
+  /** Data do documento (ISO) */
+  data?: string
+  /** Autor / origem (quem produziu) */
+  autor?: string
+  /** Destinatario (a quem se dirige) */
+  destinatario?: string
+  /** Tema principal em 1-2 palavras (para busca) */
   assunto: string
-  /** Síntese curta do caso (1-2 frases) */
+  /** Sintese curta do caso (1-3 frases) */
   sintese: string
-  /** Fundamentação jurídica principal (tese, ratio, argumentos) — para documentos jurídicos */
-  fundamentacao?: string
+  /** Fundamentacao juridica principal (tese, ratio, argumentos) */
+  fundamentacao: string
+  /** Areas do direito envolvidas */
   areas: string[]
+  /** Topicos / materias especificas (SV 13, etc) */
   topicos: string[]
+  /** Conclusao em 1-2 frases */
   conclusao: string
+  /** Palavras-chave para busca (incluindo sinonimos) */
   keywords: string[]
+  /** Materias para busca semantica no chat (tags mais amplas) */
+  materias: string[]
+}
+
+/**
+ * Pessoas envolvidas no caso (partes, autoridades, testemunhas, etc).
+ */
+export interface PersonEnvolvida {
+  /** Nome (pode ser "anonimo" se nao identificado) */
+  nome: string
+  /** Cargo / funcao / papel no caso */
+  cargo?: string
+  /** Tipo de vinculo (autoridade, servidor, particular, testemunha, etc) */
+  papel: 'autoridade' | 'servidor' | 'particular' | 'investigado' | 'denunciante' | 'testemunha' | 'parte' | 'advogado' | 'membro_mp' | 'membro_poder_judiciario' | 'outro'
+  /** Contexto da participacao (ex: "nomeado em 2023", "contratou sem licitacao") */
+  contexto?: string
+}
+
+/**
+ * Relacao familiar ou de proximidade mapeada no caso.
+ */
+export interface Relacionamento {
+  /** Tipo de vinculo (parentesco, afinidade, amizade, compadrio, etc) */
+  tipo: 'parentesco_consanguineo' | 'parentesco_afim' | 'conjugue' | 'uniao_estavel' | 'amizade' | 'compadrio' | 'societario' | 'profissional' | 'politico' | 'outro'
+  /** Grau de parentesco (se aplicavel) */
+  grau?: string
+  /** Pessoas envolvidas (nomes ou identificadores) */
+  pessoas: string[]
+  /** Descricao breve do vinculo */
+  descricao?: string
+}
+
+/**
+ * Citacao a dispositivo legal, sumula ou precedente.
+ */
+export interface CitacaoJuridica {
+  /** Tipo: legislacao, sumula, jurisprudencia, doutrina */
+  tipo: 'legislacao' | 'sumula' | 'jurisprudencia' | 'doutrina' | 'outro'
+  /** Referencia completa (ex: "Art. 37, XI, CF/88", "SV 13 STF", "Tema 1018 RG") */
+  referencia: string
+  /** Citacao literal do texto (se houver) */
+  citacao?: string
+  /** Tese/interpretacao aplicada */
+  interpretacao?: string
+}
+
+/**
+ * Ponto relevante detalhado.
+ * NAO apenas resumo superficial: cada ponto mapeia o que torna o caso UNICO.
+ */
+export interface PontoRelevante {
+  /** Categoria do ponto */
+  categoria: 'fato_principal' | 'pessoa_envolvida' | 'relacionamento' | 'fundamento_juridico' | 'prova' | 'decisao' | 'circunstancia' | 'observacao'
+  /** Titulo do ponto (1 frase curta) */
+  titulo: string
+  /** Descricao detalhada */
+  descricao: string
+  /** Citacao literal (se houver) */
+  citacao?: string
+  /** Trecho reutilizavel (100-500 chars, linguagem original) */
+  trechoReutilizavel?: string
+  /** Tags do ponto */
+  tags: string[]
 }
 
 export interface KeyPoints {
-  items: string[]
+  /** Lista de pontos relevantes detalhados */
+  items: PontoRelevante[]
+  /** Pessoas envolvidas no caso */
+  pessoasEnvolvidas: PersonEnvolvida[]
+  /** Relacionamentos mapeados (parentesco, afinidade, etc) */
+  relacionamentos: Relacionamento[]
+  /** Citacoes juridicas (legislacao, sumulas, jurisprudencia) */
+  citacoesJuridicas: CitacaoJuridica[]
+  /** Trecho citavel para reuso (geralmente ementa ou sumula do caso) */
   reusableContent: string
 }
 
@@ -76,85 +170,165 @@ export interface AcervoAnalysisResult {
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const MAX_SOURCE_CHARS = 12000  // aumentado: agora envia 1 vez para 3 skills
+const MAX_SOURCE_CHARS = 14000  // aumentado: agora envia 1 vez para 3 skills
 const NATUREZA_VALUES: Natureza[] = ['consultivo', 'executorio', 'transacional', 'negocial', 'doutrinario', 'decisorio']
 
 // ── Prompt do agente unificado (3 skills em 1 chamada) ─────────────────
 
 const UNIFIED_SYSTEM_PROMPT = [
-  'Você é um analista jurídico especializado. Sua tarefa é analisar o documento fornecido',
-  'e gerar TRÊS produtos de uma só vez, em um único JSON estruturado:',
+  'Voce e um analista juridico especializado. Sua tarefa e analisar o documento fornecido',
+  'e gerar TRES produtos estruturados de uma so vez, em um unico JSON.',
+  '',
+  'O DOCUMENTO PODE SER DE QUALQUER AREA DO DIREITO:',
+  '- Direito Penal, Processo Penal, Execucao Penal',
+  '- Direito Civil, Processo Civil, Familia, Sucessoes',
+  '- Direito Constitucional, Administrativo, Tributario, Financeiro',
+  '- Direito do Trabalho, Processo do Trabalho, Sindical',
+  '- Direito Ambiental, Urbanistico, Agrario, Minerario',
+  '- Direito do Consumidor, Empresarial, Falimentar',
+  '- Direito Pre-Cambial, Cambiario, Empresarial Internacional',
+  '- Direito Internacional Publico e Privado, Mercosul, Tratados',
+  '- etc.',
+  '',
+  'Identifique o caso concreto. Extraia pessoas, vinculos, autoridades, cargos, datas, valores.',
   '',
   '═══════════════════════════════════════════════════════════════════',
-  'SKILL 1: CLASSIFICAÇÃO',
+  'SKILL 1: CLASSIFICACAO (TAGS ESTRUTURADAS)',
   '═══════════════════════════════════════════════════════════════════',
-  'Tags estruturadas para indexação e busca do documento.',
+  'Tags estruturadas para indexacao e busca do documento.',
   '',
-  '<categorias_natureza>',
-  'Escolha EXATAMENTE UMA natureza:',
-  '- "consultivo": Documentos de emissão de opinião (parecer, informativo, manifestação, nota técnica, consulta)',
-  '- "executorio": Documentos de movimentação processual ativa (petição inicial, denúncia, recurso, contrarrazões, impugnação, agravo)',
-  '- "transacional": Documentos de acordo ou transação (ANPC, ANPP, TAC, acordo processual, termo de compromisso)',
-  '- "negocial": Documentos de relação contratual (minuta de contrato, edital, termo de referência, aditivo contratual)',
-  '- "doutrinario": Documentos de produção teórica ou acadêmica (artigo, livro, tese, monografia, estudo)',
-  '- "decisorio": Documentos de atos decisórios (sentença, acórdão, jurisprudência, despacho, decisão interlocutória)',
-  '</categorias_natureza>',
+  'Campo "natureza" (EXATAMENTE UM valor):',
+  '- consultivo: emissoes de opiniao (parecer, informativo, manifestacao, nota tecnica, consulta)',
+  '- executorio: movimentacao processual ativa (peticao, denuncia, recurso, contrarrazoes, impugnacao)',
+  '- transacional: acordo ou transacao (ANPC, ANPP, TAC, acordo processual, termo de compromisso)',
+  '- negocial: relacao contratual (minuta de contrato, edital, termo de referencia, aditivo)',
+  '- doutrinario: producao teorica (artigo, livro, tese, monografia, estudo, comentario)',
+  '- decisorio: atos decisorios (sentenca, acordao, jurisprudencia, despacho, decisao interlocutoria)',
   '',
-  '═══════════════════════════════════════════════════════════════════',
-  'SKILL 2: EMENTA',
-  '═══════════════════════════════════════════════════════════════════',
-  'Ementa estruturada para indexação rápida e busca por keyword.',
+  'Campo "tipo_documento": tipo especifico (Parecer, Sentenca, Acordao, Despacho, Peticao, TAC, Contrato, etc).',
+  'Campo "area_direito": 1-5 areas do direito envolvidas.',
+  'Campo "assuntos": 2-8 materias/temas objeto da fundamentacao.',
+  'Campo "contexto": 1-5 circunstancias facticas (ex: "Municipio celebrou contrato sem licitacao em 2023").',
   '',
   '═══════════════════════════════════════════════════════════════════',
-  'SKILL 3: PONTOS RELEVANTES',
+  'SKILL 2: EMENTA JURIDICA',
   '═══════════════════════════════════════════════════════════════════',
-  'Pontos relevantes e trecho citável para reuso em outras análises.',
+  'Ementa juridica do documento, estruturada conforme a pratica do Ministerio Publico.',
+  'A ementa deve refletir o CONTEUDO do documento, nao o trabalho do LLM.',
+  '',
+  'Campos:',
+  '- tipo: tipo generico (Parecer, Sentenca, Acordao, etc)',
+  '- tipo_documento: tipo especifico (parecer informativo, sentenca absolutoria, etc)',
+  '- numero: numero do documento (se houver)',
+  '- data: data do documento em ISO (se houver)',
+  '- autor: orgao/pessoa que produziu',
+  '- destinatario: a quem se dirige',
+  '- assunto: tema principal em 1-2 palavras (PARA BUSCA RAPIDA)',
+  '- sintese: 1-3 frases resumindo o caso concreto',
+  '- fundamentacao: FUNDAMENTOS JURIDICOS (tese central, ratio, argumentos, dispositivos citados) - 2-5 frases',
+  '- areas: areas do direito (mesmo de classification)',
+  '- topicos: referencias especificas (SV 13 STF, Tema 1018 RG, Art. 37 CF, etc)',
+  '- conclusao: 1-2 frases com a conclusao/decisao final',
+  '- keywords: 5-25 palavras-chave para busca, incluindo sinonimos',
+  '- materias: 3-10 tags mais amplas (para busca semantica no chat) - ex: "nepotismo", "improbidade", "licitacao"',
   '',
   '═══════════════════════════════════════════════════════════════════',
-  'FORMATO DE SAÍDA',
+  'SKILL 3: PONTOS RELEVANTES DETALHADOS',
   '═══════════════════════════════════════════════════════════════════',
-  'Responda APENAS com JSON puro (sem markdown, sem preâmbulo), exatamente:',
+  'Mapeamento EXAUSTIVO do que torna este caso UNICO.',
+  'NAO faca resumo superficial - mapeie todos os detalhes relevantes.',
+  '',
+  '3.1. PESSOAS ENVOLVIDAS: identifique TODAS as pessoas mencionadas, com cargo/funcao.',
+  'Exemplos: prefeito, vice-prefeito, secretarios, vereadores, procuradores, servidores comissionados,',
+  'contratados, fornecedores, testemunhas, denunciantes, etc.',
+  'Para cada pessoa: nome, cargo, papel no caso, contexto.',
+  '',
+  '3.2. RELACIONAMENTOS: parentesco, afinidade, amizade, compadrio, vinculo societario, etc.',
+  'Exemplos: "esposa do prefeito", "irmao do vereador", "sogro do secretario", "socio da empresa X".',
+  'Para cada relacao: tipo, grau, pessoas, descricao.',
+  '',
+  '3.3. CITACOES JURIDICAS: legislacao, sumulas, jurisprudencia, doutrina.',
+  'Exemplos: "Art. 37, XI, CF/88", "SV 13 STF", "Tema 1018 RG", "Lei 8.666/93, art. 3".',
+  'Para cada citacao: tipo, referencia, citacao literal (se houver), interpretacao.',
+  '',
+  '3.4. PONTOS RELEVANTES (ITEMS): fatos principais, circunstancias, decisoes tomadas.',
+  'Cada item deve ser OBJETIVO e ESPECIFICO, nao generico.',
+  'Bom: "Prefeito nomeou irmao da esposa para cargo em comissao de R$ 8.000, em 03/2023"',
+  'Ruim: "Houve nomeacao irregular"',
+  'Cada item inclui: categoria, titulo, descricao, citacao literal (opcional), trecho reutilizavel (opcional), tags.',
+  '',
+  '3.5. REUSABLE_CONTENT: trecho citavel (1-3 paragrafos, 200-1500 chars) - copie do original.',
+  '',
+  '═══════════════════════════════════════════════════════════════════',
+  'FORMATO DE SAIDA (JSON PURO, sem markdown, sem texto adicional)',
+  '═══════════════════════════════════════════════════════════════════',
   '{',
   '  "classification": {',
   '    "natureza": "consultivo|executorio|transacional|negocial|doutrinario|decisorio",',
   '    "area_direito": ["Direito Administrativo", "Direito Constitucional"],',
-  '    "assuntos": ["Licitação", "Dispensa de licitação"],',
+  '    "assuntos": ["Licitacao", "Dispensa de licitacao"],',
   '    "tipo_documento": "Parecer",',
-  '    "contexto": ["Município celebrou contrato sem licitação"]',
+  '    "contexto": ["Municipio celebrou contrato sem licitacao"]',
   '  },',
   '  "ementa": {',
-  '    "tipo": "Parecer|Petição|ACP|Sentença|Recurso|Outro",',
-  '    "assunto": "Tema principal em 1-2 palavras",',
-  '    "sintese": "Síntese do caso em 1-2 frases curtas",',
-  '    "fundamentacao": "Fundamentação jurídica principal (tese, ratio, argumentos) - para docs jurídicos",',
-  '    "areas": ["Direito Administrativo"],',
-  '    "topicos": ["Súmula Vinculante 13"],',
-  '    "conclusao": "Conclusão em 1 frase",',
-  '    "keywords": ["nepotismo", "cargo político", "SV 13"]',
+  '    "tipo": "Parecer",',
+  '    "tipo_documento": "Parecer informativo",',
+  '    "numero": "007/2024",',
+  '    "data": "2024-03-15",',
+  '    "autor": "Centro de Apoio Operacional Civel e Patrimonio Publico",',
+  '    "destinatario": "Promotor de Justiça da Comarca X",',
+  '    "assunto": "Nepotismo",',
+  '    "sintese": "Consulta sobre possibilidade de configuracao de nepotismo na Santa Casa de Alegrete. Vínculo entre servidores da entidade pública e o Ministério Público é analisado.",',
+  '    "fundamentacao": "A vedação ao nepotismo decorre do art. 37, XI, da CF/88 e da SV 13 do STF, alcançando entidades do Sistema Único de Saúde (Lei 8.080/90). No caso, há indicios de parentesco entre o Secretario Municipal de Saude e contratados.",',
+  '    "areas": ["Direito Administrativo", "Direito Constitucional"],',
+  '    "topicos": ["SV 13 STF", "Art. 37, XI, CF/88", "Lei 8.080/90"],',
+  '    "conclusao": "Ha indicios de nepotismo, devendo o caso ser apurado em Inquerito Civil.",',
+  '    "keywords": ["nepotismo", "cargo comissionado", "SUS", "SAUDE", "santa casa", "parentesco", "SV 13"],',
+  '    "materias": ["nepotismo", "improbidade", "patrimonio publico"]',
   '  },',
   '  "key_points": {',
-  '    "items": ["Ponto 1 em 1 frase", "Ponto 2 em 1 frase", "Ponto 3 em 1 frase"],',
-  '    "reusable_content": "Trecho citável (1-3 parágrafos, 200-1500 chars, preserve linguagem original)"',
+  '    "items": [',
+  '      { "categoria": "fato_principal", "titulo": "Nomeacao de parente em cargo comissionado", "descricao": "Em marco/2023, o Secretario Municipal de Saude, Ricardo Colpo Marchesan, nomeou seu irmao Joao Pedro Marchesan para o cargo em comissao de Assessor Tecnico II, com remuneracao de R$ 8.000.", "citacao": null, "trechoReutilizavel": null, "tags": ["nepotismo", "nomeacao", "parentesco"] },',
+  '      { "categoria": "relacionamento", "titulo": "Vinculo de parentesco", "descricao": "O irmao do Secretario Municipal de Saude foi nomeado para cargo em comissao na mesma secretaria.", "tags": ["parentesco", "irmao"] },',
+  '      { "categoria": "fundamento_juridico", "titulo": "Vedacao constitucional ao nepotismo", "descricao": "Art. 37, XI, CF/88 e SV 13 STF vedam nomeacao de parentes para cargos em comissao de livre nomeacao.", "tags": ["CF88", "SV13", "nepotismo"] }',
+  '    ],',
+  '    "pessoas_envolvidas": [',
+  '      { "nome": "Ricardo Colpo Marchesan", "cargo": "Secretario Municipal de Saude", "papel": "autoridade", "contexto": "Responsavel pelas contratacoes da Secretaria de Saude" },',
+  '      { "nome": "Joao Pedro Marchesan", "cargo": "Assessor Tecnico II", "papel": "servidor", "contexto": "Nomeado em 03/2023, remuneracao R$ 8.000" }',
+  '    ],',
+  '    "relacionamentos": [',
+  '      { "tipo": "parentesco_consanguineo", "grau": "irmao", "pessoas": ["Ricardo Colpo Marchesan", "Joao Pedro Marchesan"], "descricao": "Irmaos" }',
+  '    ],',
+  '    "citacoes_juridicas": [',
+  '      { "tipo": "legislacao", "referencia": "Art. 37, XI, CF/88", "interpretacao": "Vedacao ao nepotismo em cargos em comissao" },',
+  '      { "tipo": "sumula", "referencia": "SV 13 STF", "interpretacao": "Vedacao a nomeacao de conjugue ou parente para cargo em comissao" }',
+  '    ],',
+  '    "reusable_content": "INFORMACAO TECNICO-JURIDICA. Objeto: Possibilidade de configuracao de nepotismo na Santa Casa de Alegrete. O principio da moralidade..."',
   '  }',
   '}',
   '',
   '═══════════════════════════════════════════════════════════════════',
   'REGRAS GERAIS',
   '═══════════════════════════════════════════════════════════════════',
-  '- classification.natureza: EXATAMENTE um dos 6 valores acima (sem variações).',
-  '- classification.area_direito: 1 a 5 áreas.',
-  '- classification.assuntos: 2 a 8 matérias/temas objeto da fundamentação.',
-  '- classification.tipo_documento: tipo específico (ex: Parecer, Petição inicial, Sentença, TAC, Contrato).',
-  '- classification.contexto: 1 a 5 circunstâncias fáticas.',
-  '- ementa.assunto: CURTO (1-2 palavras), ideal para busca rápida.',
-'- ementa.fundamentacao: para docs jurídicos, cite a tese/razão de decidir; pode ser vazia para docs não jurídicos.',
-  '- ementa.keywords: TODAS as palavras relevantes para busca, incluindo sinônimos (mín 5, máx 25).',
-  '- key_points.items: 3 a 8 pontos OBJETIVOS e CURTOS (1 frase cada).',
+  '- classification.natureza: EXATAMENTE um dos 6 valores acima (sem variacoes).',
+  '- classification.area_direito: 1-5 areas.',
+  '- classification.assuntos: 2-8 materias/temas objeto da fundamentacao.',
+  '- classification.tipo_documento: tipo especifico (ex: Parecer, Peticao inicial, Sentenca, TAC, Contrato).',
+  '- classification.contexto: 1-5 circunstancias facticas.',
+  '- ementa.assunto: CURTO (1-2 palavras), ideal para busca rapida.',
+  '- ementa.sintese: 1-3 frases, descritiva do CONTEUDO do documento.',
+  '- ementa.fundamentacao: cite a tese/razao de decidir; dispositivos legais (artigos de lei).',
+  '- ementa.materias: tags SEMANTICAS amplas para busca por tema no chat.',
+  '- ementa.keywords: TODAS as palavras relevantes, incluindo sinonimos (min 5, max 25).',
+  '- key_points.items: 3-8 pontos OBJETIVOS e ESPECIFICOS, mapeando o que torna o caso UNICO.',
+  '- key_points.pessoas_envolvidas: TODAS as pessoas mencionadas, com cargo/funcao.',
+  '- key_points.relacionamentos: parentesco, afinidade, amizade, compadrio, vinculo societario.',
+  '- key_points.citacoes_juridicas: legislacao, sumulas, jurisprudencia, doutrina.',
   '- key_points.reusable_content: copie trechos LITERAIS do documento (200-1500 chars).',
   '',
-  'IMPORTANTE: Faça tudo em uma única cadeia de raciocínio. Os 3 produtos devem ser',
+  'IMPORTANTE: Faca tudo em uma unica cadeia de raciocinio. Os 3 produtos devem ser',
   'CONSISTENTES entre si (a ementa deve refletir a classification, os keywords devem',
-  'cobrir os assuntos, etc).',
+  'cobrir os assuntos, as pessoas_envolvidas devem ser as mesmas nos pontos relevantes).',
 ].join('\n')
 
 
@@ -186,7 +360,7 @@ function buildSystemPrompt(flags?: AcervoPipelineFlags): string {
                             '═══════════════════════════════════════════════════════════════════\nSKILL 2: EMENTA [DESATIVADA]\n(ementa deve ser null)\n')
   }
   if (!enableKeyPoints) {
-    prompt = prompt.replace(/═══════════════════════════════════════════════════════════════════\nSKILL 3: PONTOS RELEVANTES[\s\S]*?(?=═══════════════════════════════════════════════════════════════════)/,
+    prompt = prompt.replace(/═══════════════════════════════════════════════════════════════════\nSKILL 3: PONTOS RELEVANTES DETs\S]*?(?=═══════════════════════════════════════════════════════════════════)/,
                             '═══════════════════════════════════════════════════════════════════\nSKILL 3: PONTOS RELEVANTES [DESATIVADA]\n(key_points deve ser null)\n')
   }
   return prompt
@@ -217,7 +391,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       systemPrompt: buildSystemPrompt(input.pipelineFlags),
       messages: [{ role: 'user', content: userPrompt }],
       // maxTokens generoso: cobre 3 outputs estruturados
-      config: { ...input.llmConfig, maxTokens: 2000, temperature: 0.1 },
+      config: { ...input.llmConfig, maxTokens: 3000, temperature: 0.1 },
     })
   } catch (err) {
     logger.warn('analyzeAcervoDoc: LLM falhou, usando heuristica de fallback', { err: (err as Error).message })
@@ -251,7 +425,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
   const enableKeyPoints = input.pipelineFlags?.enableKeyPoints !== false
   const classification = enableClassifier ? normalizeClassification(parsed.value.classification) : null
   const ementa = enableEmenta ? normalizeEmenta(parsed.value.ementa, input.fileName) : null
-  const keyPoints = enableKeyPoints ? normalizeKeyPoints(parsed.value.key_points) : { items: [], reusableContent: '' }
+  const keyPoints = enableKeyPoints ? normalizeKeyPoints(parsed.value.key_points) : getDefaultKeyPoints()
 
   const totalLatencyMs = Date.now() - start
   logger.info('acervo-analyzer.done', {
@@ -269,18 +443,18 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
   }
 }
 
-// ── Normalizadores (cada skill) ───────────────────────────────────────
+// ── Heuristica melhorada (fallback) ───────────────────────────────────
 
 /**
- * Heuristica de fallback: gera classification + ementa basicas
- * a partir do filename e do texto, quando o LLM nao esta disponivel.
- * SEMPRE retorna dados uteis (nunca campos vazios).
+ * Heuristica de fallback: gera classification + ementa + keyPoints
+ * com base em regex e palavras-chave, quando o LLM nao esta disponivel.
+ * Gera dados RICOS (nunca defaults vazios).
  */
 export function getHeuristicAnalysis(fileName: string, text: string): { classification: Classification; ementa: Ementa; keyPoints: KeyPoints } {
   const lower = fileName.toLowerCase()
-  const textLower = text.toLowerCase().slice(0, 5000)
+  const textLower = (text || '').toLowerCase().slice(0, 10000)
 
-  // Detectar tipo do documento
+  // === Classification ===
   let tipoDocumento = 'Outro'
   let natureza: Natureza = 'consultivo'
   if (/parecer|informativo|nota\s+t[eé]cnic|manifesta[cç][aã]o|consulta/i.test(lower + ' ' + textLower)) {
@@ -336,6 +510,9 @@ export function getHeuristicAnalysis(fileName: string, text: string): { classifi
     'Ação Popular', 'Ação Civil Pública', 'Regressão',
     'Súmula Vinculante', 'Jurisprudência', 'Precedente',
     'Inconstitucionalidade', 'Modulação de Efeitos', 'Repercussão Geral',
+    'Concurso Público', 'Cargo em Comissão', 'Função de Confiança',
+    'Contrato Administrativo', 'Dispensa de Licitação', 'Inexigibilidade',
+    'Convênio', 'Termo de Ajustamento de Conduta',
   ]
   for (const a of assuntoPatterns) {
     if (textLower.includes(a.toLowerCase())) assuntos.push(a)
@@ -346,6 +523,10 @@ export function getHeuristicAnalysis(fileName: string, text: string): { classifi
   if (/sv\s*13|sumula\s+vinculante\s+13/i.test(textLower)) topicos.push('SV 13')
   if (/sv\s*10|sumula\s+vinculante\s+10/i.test(textLower)) topicos.push('SV 10')
   if (/sumula\s+vinculante/i.test(textLower) && topicos.length === 0) topicos.push('Súmula Vinculante')
+  if (/art\.\s*\d+|artigo\s+\d+/i.test(textLower)) {
+    const m = textLower.match(/art\.\s*(\d+)/i)
+    if (m) topicos.push(`Art. ${m[1]}`)
+  }
 
   // Limpar filename
   const filenameClean = fileName
@@ -368,6 +549,144 @@ export function getHeuristicAnalysis(fileName: string, text: string): { classifi
     .slice(0, 15)
     .map(([w]) => w)
 
+  // Detectar pessoas (heuristica)
+  const pessoasEnvolvidas: PersonEnvolvida[] = []
+  const pessoasSet = new Set<string>()
+  const cargoPatterns: Array<[RegExp, string]> = [
+    [/prefeito(?:sa)?/i, 'Prefeito(a)'],
+    [/vice[\-\s]?prefeito/i, 'Vice-Prefeito(a)'],
+    [/secret[aá]rio(?:\s+municipal)?(?:\s+de\s+\w+)?/i, 'Secretário(a) Municipal'],
+    [/veread(or|ora)/i, 'Vereador(a)'],
+    [/procurador(?:\s+municipal)?/i, 'Procurador(a)'],
+    [/presidente\s+da\s+c[aâ]mara/i, 'Presidente da Câmara'],
+    [/juiz(?:a)?/i, 'Juiz(a)'],
+    [/promotor(?:\s+de\s+justi[cç]a)?/i, 'Promotor(a) de Justiça'],
+    [/desembargador/i, 'Desembargador(a)'],
+    [/servidor(?:\s+p[úu]blico)?/i, 'Servidor(a) Público'],
+    [/comissionado/i, 'Cargo em Comissão'],
+  ]
+  for (const [pattern, cargo] of cargoPatterns) {
+    if (pattern.test(textLower)) {
+      const papel: PersonEnvolvida['papel'] =
+        /prefeito|secret|veread|procurad|presidente/i.test(cargo) ? 'autoridade' :
+        /juiz|desembargad|promotor/i.test(cargo) ? 'membro_poder_judiciario' :
+        /servidor|comissionado/i.test(cargo) ? 'servidor' : 'parte'
+      const key = cargo
+      if (!pessoasSet.has(key)) {
+        pessoasSet.add(key)
+        pessoasEnvolvidas.push({ nome: cargo, cargo, papel, contexto: 'Mencionado no documento' })
+      }
+    }
+  }
+
+  // Detectar vinculos
+  const relacionamentos: Relacionamento[] = []
+  const vinculoPatterns: Array<[RegExp, Relacionamento['tipo'], string]> = [
+    [/irm[ãa]o\s+de/i, 'parentesco_consanguineo', 'Irmão de'],
+    [/esposa?\s+de|marido\s+de|c[óo]njug[ae]\s+de/i, 'conjugue', 'Cônjuge de'],
+    [/pai\s+de|m[ãa]e\s+de|filh[oa]\s+de/i, 'parentesco_consanguineo', 'Parente consanguíneo'],
+    [/sogro\s+de|sogra\s+de|genro\s+de|nora\s+de/i, 'parentesco_afim', 'Parente afim'],
+    [/primo\s+de|prima\s+de|tio\s+de|tia\s+de|sobrinh[oa]\s+de/i, 'parentesco_consanguineo', 'Parente colateral'],
+    [/amig[oa]\s+de|compadre\s+de|comadre\s+de/i, 'amizade', 'Amigo/Compadre'],
+    [/s[óo]ci[oa]\s+de|s[óo]cios?\s+da/i, 'societario', 'Sócio de'],
+    [/namorad[oa]\s+de|noiv[oa]\s+de/i, 'conjugue', 'Namorado(a)/Noivo(a)'],
+  ]
+  for (const [pattern, tipo, descricao] of vinculoPatterns) {
+    if (pattern.test(textLower)) {
+      relacionamentos.push({
+        tipo,
+        pessoas: [],
+        descricao,
+      })
+    }
+  }
+
+  // Detectar citacoes
+  const citacoesJuridicas: CitacaoJuridica[] = []
+  const citacaoPatterns: Array<[RegExp, CitacaoJuridica['tipo'], string]> = [
+    [/art\.\s*(\d+[ºo]?)(?:\s*,?\s*da?\s+(?:cf|lcf|lei\s+n[ºo]?\s*[\d.]+))?/gi, 'legislacao', 'Artigo de lei'],
+    [/sumula\s+vinculante\s+(\d+)/gi, 'sumula', 'Súmula Vinculante'],
+    [/sv\s+(\d+)/gi, 'sumula', 'SV'],
+    [/tema\s+(\d+)\s+(?:rg|repercussao)/gi, 'jurisprudencia', 'Tema RG'],
+    [/lei\s+(?:federal\s+)?n[ºo]?\s*([\d.]+)\/(\d+)/gi, 'legislacao', 'Lei'],
+  ]
+  const seenCitacoes = new Set<string>()
+  for (const [pattern, tipo] of citacaoPatterns) {
+    const matches = textLower.matchAll(pattern)
+    for (const m of matches) {
+      const fullMatch = m[0].trim()
+      if (seenCitacoes.has(fullMatch.toLowerCase())) continue
+      seenCitacoes.add(fullMatch.toLowerCase())
+      citacoesJuridicas.push({
+        tipo,
+        referencia: fullMatch,
+        interpretacao: 'Citada no documento',
+      })
+      if (citacoesJuridicas.length >= 10) break
+    }
+    if (citacoesJuridicas.length >= 10) break
+  }
+
+  // Pontos relevantes (heuristica)
+  const items: PontoRelevante[] = []
+  if (tipoDocumento !== 'Outro') {
+    items.push({
+      categoria: 'fato_principal',
+      titulo: `Documento do tipo ${tipoDocumento}`,
+      descricao: `O documento é um(a) ${tipoDocumento} que trata de ${filenameClean.slice(0, 80)}.`,
+      tags: [tipoDocumento.toLowerCase()],
+    })
+  }
+  if (areas.length > 0) {
+    items.push({
+      categoria: 'fundamento_juridico',
+      titulo: `Área do direito: ${areas[0]}`,
+      descricao: `O documento trata de matéria de ${areas[0]}.`,
+      tags: areas,
+    })
+  }
+  if (assuntos.length > 0) {
+    items.push({
+      categoria: 'fato_principal',
+      titulo: `Assunto principal: ${assuntos[0]}`,
+      descricao: `O documento aborda o tema "${assuntos[0]}" como matéria principal da análise.`,
+      tags: [assuntos[0].toLowerCase()],
+    })
+  }
+  if (pessoasEnvolvidas.length > 0) {
+    items.push({
+      categoria: 'pessoa_envolvida',
+      titulo: `${pessoasEnvolvidas.length} pessoa(s) com cargo identificada(s)`,
+      descricao: `Mapeamento heuristico identificou ${pessoasEnvolvidas.length} pessoa(s) com cargo mencionada(s) no documento.`,
+      tags: pessoasEnvolvidas.map(p => p.papel).slice(0, 5),
+    })
+  }
+  if (relacionamentos.length > 0) {
+    items.push({
+      categoria: 'relacionamento',
+      titulo: `${relacionamentos.length} vinculo(s) familiar(es) ou de proximidade detectado(s)`,
+      descricao: `Detectados indicios de: ${relacionamentos.slice(0, 3).map(r => r.descricao).join(', ')}.`,
+      tags: ['vinculo', 'parentesco'],
+    })
+  }
+  if (citacoesJuridicas.length > 0) {
+    items.push({
+      categoria: 'fundamento_juridico',
+      titulo: `${citacoesJuridicas.length} citacao(oes) juridica(s) identificada(s)`,
+      descricao: `Citacoes: ${citacoesJuridicas.slice(0, 5).map(c => c.referencia).join(', ')}.`,
+      tags: citacoesJuridicas.slice(0, 3).map(c => c.tipo),
+    })
+  }
+
+  // Sintese do texto
+  const firstParagraph = text.split(/\n\s*\n/)[0] || ''
+  const sintese = firstParagraph.length > 0 && firstParagraph.length < 500
+    ? firstParagraph.trim()
+    : 'Documento do acervo. Análise LLM não disponível no momento.'
+
+  // Materias (tags semanticas)
+  const materias = assuntos.length > 0 ? assuntos : [filenameClean.slice(0, 30) || 'Documento']
+
   const classification: Classification = {
     natureza,
     areaDireito: areas.length > 0 ? areas : ['Geral'],
@@ -379,32 +698,31 @@ export function getHeuristicAnalysis(fileName: string, text: string): { classifi
     tipo: tipoDocumento,
     tipoDocumento,
     assunto: filenameClean.slice(0, 50) || tipoDocumento,
-    sintese: 'Documento do acervo. Metadata extraída heuristicamente (análise LLM não disponível no momento).',
-    fundamentacao: 'Análise LLM não disponível. Metadata gerada via heurística a partir do filename e conteúdo.',
+    sintese,
+    fundamentacao: citacoesJuridicas.length > 0
+      ? `Análise LLM não disponível. Heurística identificou ${citacoesJuridicas.length} citação(ões) jurídica(s): ${citacoesJuridicas.slice(0, 3).map(c => c.referencia).join(', ')}.`
+      : 'Análise LLM não disponível. Metadata gerada via heurística a partir do filename e conteúdo.',
     areas: areas.length > 0 ? areas : ['Geral'],
     topicos: topicos.length > 0 ? topicos : [],
     conclusao: 'Aguardando reanálise com LLM para resultados completos.',
     keywords,
+    materias,
   }
   const keyPoints: KeyPoints = {
-    items: [
-      `Tipo detectado: ${tipoDocumento}`,
-      ...(areas.length > 0 ? [`Área: ${areas[0]}`] : []),
-      ...(assuntos.length > 0 ? [`Assunto principal: ${assuntos[0]}`] : []),
-      `Total de palavras-chave extraídas: ${keywords.length}`,
-    ],
+    items,
+    pessoasEnvolvidas,
+    relacionamentos,
+    citacoesJuridicas,
     reusableContent: '',
   }
   return { classification, ementa, keyPoints }
 }
 
-function getDefaultClassification(): Classification {
-  return { natureza: 'consultivo', areaDireito: [], assuntos: [], tipoDocumento: '', contexto: [] }
+function getDefaultKeyPoints(): KeyPoints {
+  return { items: [], pessoasEnvolvidas: [], relacionamentos: [], citacoesJuridicas: [], reusableContent: '' }
 }
 
-function getDefaultEmenta(): Ementa {
-  return { tipo: 'Outro', assunto: '', sintese: '', areas: [], topicos: [], conclusao: '', keywords: [] }
-}
+// ── Normalizadores (cada skill) ───────────────────────────────────────
 
 function normalizeClassification(raw: unknown): Classification {
   const obj = asRecord(raw)
@@ -440,6 +758,10 @@ function normalizeEmenta(raw: unknown, fileName: string): Ementa {
     tipoDocumento: typeof obj.tipo_documento === 'string'
       ? obj.tipo_documento
       : (typeof obj.tipo === 'string' ? obj.tipo : 'Outro'),
+    numero: typeof obj.numero === 'string' ? obj.numero : undefined,
+    data: typeof obj.data === 'string' ? obj.data : undefined,
+    autor: typeof obj.autor === 'string' ? obj.autor : undefined,
+    destinatario: typeof obj.destinatario === 'string' ? obj.destinatario : undefined,
     assunto: typeof obj.assunto === 'string' ? obj.assunto : '',
     sintese: typeof obj.sintese === 'string' ? obj.sintese : '',
     fundamentacao: typeof obj.fundamentacao === 'string' ? obj.fundamentacao : '',
@@ -447,19 +769,104 @@ function normalizeEmenta(raw: unknown, fileName: string): Ementa {
     topicos: Array.isArray(obj.topicos) ? obj.topicos.filter((x: unknown) => typeof x === 'string') : [],
     conclusao: typeof obj.conclusao === 'string' ? obj.conclusao : '',
     keywords: Array.from(new Set([...llmKeywords, ...filenameKeywords])).slice(0, 30),
+    materias: Array.isArray(obj.materias)
+      ? obj.materias.filter((x: unknown) => typeof x === 'string')
+      : (Array.isArray(obj.assuntos)
+        ? obj.assuntos.filter((x: unknown) => typeof x === 'string')
+        : []),
   }
 }
 
 function normalizeKeyPoints(raw: unknown): KeyPoints {
   const obj = asRecord(raw)
-  if (!obj) return { items: [], reusableContent: '' }
-  const items = Array.isArray(obj.items)
-    ? obj.items.filter((x: unknown) => typeof x === 'string').slice(0, 8)
+  if (!obj) return getDefaultKeyPoints()
+  const items: PontoRelevante[] = []
+  if (Array.isArray(obj.items)) {
+    const raw = obj.items.slice(0, 8)
+    for (const x of raw) {
+      if (typeof x === 'string') {
+        // Backward compat: string[] (formato antigo)
+        items.push({
+          categoria: 'observacao',
+          titulo: x,
+          descricao: x,
+          tags: [],
+        })
+      } else {
+        const r = asRecord(x)
+        if (!r) continue
+        const categoria = r.categoria as PontoRelevante['categoria']
+        items.push({
+          categoria: categoria && ['fato_principal', 'pessoa_envolvida', 'relacionamento', 'fundamento_juridico', 'prova', 'decisao', 'circunstancia', 'observacao'].includes(categoria)
+            ? categoria
+            : 'observacao',
+          titulo: typeof r.titulo === 'string' ? r.titulo : '',
+          descricao: typeof r.descricao === 'string' ? r.descricao : '',
+          citacao: typeof r.citacao === 'string' ? r.citacao : undefined,
+          trechoReutilizavel: typeof r.trecho_reutilizavel === 'string'
+            ? r.trecho_reutilizavel
+            : (typeof r.trechoReutilizavel === 'string' ? r.trechoReutilizavel : undefined),
+          tags: Array.isArray(r.tags) ? r.tags.filter((t: unknown) => typeof t === 'string') : [],
+        })
+      }
+    }
+  }
+  // Backward compat: se items era string[], converte
+  if (items.length === 0 && Array.isArray(obj.items)) {
+    for (const s of obj.items) {
+      if (typeof s === 'string') {
+        items.push({
+          categoria: 'observacao',
+          titulo: s,
+          descricao: s,
+          tags: [],
+        })
+      }
+    }
+  }
+  const pessoasEnvolvidas: PersonEnvolvida[] = Array.isArray(obj.pessoas_envolvidas)
+    ? (obj.pessoas_envolvidas.slice(0, 20).map((x: any) => {
+        const r = asRecord(x)
+        if (!r) return null
+        const papel = r.papel as PersonEnvolvida['papel']
+        return {
+          nome: typeof r.nome === 'string' ? r.nome : '',
+          cargo: typeof r.cargo === 'string' ? r.cargo : undefined,
+          papel: papel || 'outro',
+          contexto: typeof r.contexto === 'string' ? r.contexto : undefined,
+        } as PersonEnvolvida | null
+      }).filter((x): x is PersonEnvolvida => x !== null))
+    : []
+  const relacionamentos: Relacionamento[] = Array.isArray(obj.relacionamentos)
+    ? (obj.relacionamentos.slice(0, 20).map((x: any) => {
+        const r = asRecord(x)
+        if (!r) return null
+        const tipo = r.tipo as Relacionamento['tipo']
+        return {
+          tipo: tipo || 'outro',
+          grau: typeof r.grau === 'string' ? r.grau : undefined,
+          pessoas: Array.isArray(r.pessoas) ? r.pessoas.filter((p: unknown) => typeof p === 'string') : [],
+          descricao: typeof r.descricao === 'string' ? r.descricao : undefined,
+        } as Relacionamento | null
+      }).filter((x): x is Relacionamento => x !== null))
+    : []
+  const citacoesJuridicas: CitacaoJuridica[] = Array.isArray(obj.citacoes_juridicas)
+    ? (obj.citacoes_juridicas.slice(0, 15).map((x: any) => {
+        const r = asRecord(x)
+        if (!r) return null
+        const tipo = r.tipo as CitacaoJuridica['tipo']
+        return {
+          tipo: tipo || 'outro',
+          referencia: typeof r.referencia === 'string' ? r.referencia : '',
+          citacao: typeof r.citacao === 'string' ? r.citacao : undefined,
+          interpretacao: typeof r.interpretacao === 'string' ? r.interpretacao : undefined,
+        } as CitacaoJuridica | null
+      }).filter((x): x is CitacaoJuridica => x !== null))
     : []
   const reusableContent = typeof obj.reusable_content === 'string'
     ? obj.reusable_content.slice(0, 2000)
     : ''
-  return { items, reusableContent }
+  return { items, pessoasEnvolvidas, relacionamentos, citacoesJuridicas, reusableContent }
 }
 
 
@@ -472,7 +879,30 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+function getDefaultClassification(): Classification {
+  return {
+    natureza: 'consultivo',
+    areaDireito: ['Geral'],
+    assuntos: [],
+    tipoDocumento: 'Outro',
+    contexto: [],
+  }
+}
 
+function getDefaultEmenta(): Ementa {
+  return {
+    tipo: 'Outro',
+    tipoDocumento: 'Outro',
+    assunto: '',
+    sintese: '',
+    fundamentacao: '',
+    areas: ['Geral'],
+    topicos: [],
+    conclusao: '',
+    keywords: [],
+    materias: [],
+  }
+}
 
 /**
  * Extrai JSON do formato unificado {classification, ementa, key_points}.

@@ -755,7 +755,7 @@ export async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
 // ── Pegar documento completo (com JSON estruturado) ─────────────────────
 
 export const adminGetDocument = onCall(
-  { cors: true, enforceAppCheck: false },
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 60 },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -764,7 +764,72 @@ export const adminGetDocument = onCall(
     const db = getFirestore()
     const docSnap = await db.doc(`corpus/${docId}`).get()
     if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
-    return { id: docSnap.id, ...docSnap.data() }
+    const data = docSnap.data() || {}
+    // SHAPE ENXUTO: NAO retornar textContent (pode ter 5MB+)
+    // Frontend usa adminGetDocumentTextContent para carregar sob demanda
+    const { textContent, textOriginal, ...rest } = data
+    return {
+      id: docSnap.id,
+      ...rest,
+      hasTextContent: typeof textContent === 'string' && textContent.length > 0,
+      hasTextOriginal: typeof textOriginal === 'string' && textOriginal.length > 0,
+      textContentLength: typeof textContent === 'string' ? textContent.length : 0,
+      textOriginalLength: typeof textOriginal === 'string' ? textOriginal.length : 0,
+    }
+  },
+)
+
+/**
+ * Carrega APENAS o textContent (JSON estruturado) de um doc.
+ * Endpoint separado para evitar DEADLINE_EXCEEDED (textContent pode ter 5MB+).
+ */
+export const adminGetDocumentTextContent = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 120, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId } = (request.data || {}) as { docId: string }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    const db = getFirestore()
+    const docSnap = await db.doc(`corpus/${docId}`).get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+    const data = docSnap.data() || {}
+    return {
+      id: docSnap.id,
+      textContent: data.textContent || '',
+      textOriginal: data.textOriginal || '',
+    }
+  },
+)
+
+/**
+ * Gera URL assinada para download do PDF original no Storage.
+ */
+export const adminGetDocumentDownloadUrl = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId } = (request.data || {}) as { docId: string }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    const db = getFirestore()
+    const docSnap = await db.doc(`corpus/${docId}`).get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+    const data = docSnap.data() || {}
+    const storagePath = data.storagePath as string | undefined
+    if (!storagePath) throw new HttpsError('not-found', 'Documento nao tem storagePath')
+    try {
+      const { getStorage } = await import('../services/storage')
+      const bucket = getStorage().bucket()
+      const file = bucket.file(storagePath)
+      const [url] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 60 * 60 * 1000, // 1h
+      })
+      return { url, expiresIn: 3600 }
+    } catch (err) {
+      throw new HttpsError('internal', `Erro ao gerar URL: ${(err as Error).message}`)
+    }
   },
 )
 
