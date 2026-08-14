@@ -187,7 +187,7 @@ export type TrailEvent =
   | { type: 'agent_end'; role: AgentRole; ts: string; status: 'success' | 'error' | 'skipped'; durationMs: number }
   | { type: 'iteration_start'; i: number; ts: string }
   | { type: 'critic_score'; score: number; reasons: string[]; shouldStop: boolean; ts: string }
-  | { type: 'sources_found'; count: number; ts: string; source: 'internal' | 'web' | 'compiled' }
+  | { type: 'sources_found'; count: number; ts: string; source: 'internal' | 'web' | 'compiled'; titles?: string[] }
   | { type: 'plan'; plan: OrchestratorPlan; ts: string }
   | { type: 'error'; message: string; ts: string } | { type: 'final_answer'; length: number; ts: string }
 

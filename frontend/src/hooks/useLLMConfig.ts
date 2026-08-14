@@ -86,17 +86,27 @@ export function useLLMConfig(): UseLLMConfig {
       ref,
       (snap) => {
         if (snap.exists()) {
-          const data = snap.data() as any
-          setGlobalConfig({
-            provider: data.provider,
-            model: data.model,
-            apiKey: data.apiKey ?? '',
-            baseUrl: data.baseUrl,
-            temperature: data.temperature,
-            maxTokens: data.maxTokens,
-            scope: 'global',
-            updatedAt: data.updatedAt?.toDate?.()?.toISOString() ?? data.updatedAt,
-          } as LLMConfig)
+          const raw = snap.data() as any
+          // O doc é gravado com envelope de auditoria { data: {...}, version, updatedAt }.
+          // Suportamos tambem o formato legado (campos na raiz).
+          const d = raw && typeof raw.data === 'object' && raw.data !== null ? raw.data : raw
+          if (d && (d.provider || d.model)) {
+            setGlobalConfig({
+              provider: d.provider,
+              model: d.model,
+              apiKey: d.apiKey ?? '',
+              baseUrl: d.baseUrl,
+              temperature: d.temperature,
+              maxTokens: d.maxTokens,
+              scope: 'global',
+              updatedAt:
+                raw.updatedAt?.toDate?.()?.toISOString?.() ??
+                raw.updatedAt ??
+                d.updatedAt,
+            } as LLMConfig)
+          } else {
+            setGlobalConfig(null)
+          }
         } else {
           setGlobalConfig(null)
         }
@@ -154,10 +164,14 @@ export function useLLMConfig(): UseLLMConfig {
       if (config === null) {
         await setDoc(doc(firestore, 'admin-config', 'llm'), {}, { merge: false })
       } else {
+        // Nunca gravar a apiKey no doc legível pelo cliente (segurança).
+        // A chave só é persistida pela Cloud Function (doc secreto master-only).
+        const safe: Record<string, unknown> = { ...config }
+        delete safe.apiKey
         await setDoc(
           doc(firestore, 'admin-config', 'llm'),
           {
-            ...config,
+            ...safe,
             scope: 'global',
             updatedAt: new Date().toISOString(),
           },

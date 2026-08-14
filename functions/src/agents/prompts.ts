@@ -242,7 +242,7 @@ export function buildLegalWriterUserPrompt(
   question: string,
   compiled: { summary: string; sources: SourceRef[]; hasEnoughMaterial: boolean; warnings: string[] },
 ): string {
-  if (!compiled.hasEnoughMaterial || compiled.sources.length === 0) {
+  if (compiled.sources.length === 0) {
     return `PERGUNTA DO USUÁRIO:
 """
 ${question}
@@ -259,6 +259,17 @@ Ofereça ao usuário as opções:
 2. Abrir consulta formal ao CAOCIPP.
 3. Reformular a pergunta com palavras-chave mais específicas.`
   }
+
+  const partialNote = compiled.hasEnoughMaterial
+    ? ''
+    : `
+# ATENÇÃO — COBERTURA PARCIAL
+O material encontrado pode NÃO cobrir integralmente o pedido. NÃO diga que nada foi encontrado.
+Em vez disso: apresente os documentos MAIS PRÓXIMOS acima, explique de forma objetiva COMO cada um
+pode ser aproveitado para o caso do usuário (fundamentação, teses, trechos citáveis, analogia), e
+aponte claramente o que ficou SEM cobertura. Só sugira consulta formal ao CAOCIPP se realmente não
+houver aproveitamento possível.
+`
 
   return `PERGUNTA DO USUÁRIO:
 """
@@ -284,7 +295,7 @@ ${compiled.sources.map((s, i) => `### [${i + 1}] ${s.title}
 ${s.snippet}
 """
 `).join('\n')}
-
+${partialNote}
 # TAREFA
 
 Elabore a análise jurídica provisória em Markdown, seguindo a estrutura:

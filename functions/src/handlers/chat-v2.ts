@@ -23,12 +23,26 @@ import { getUserProfile } from '../services/profile'
 import { logAnalytics } from '../services/analytics'
 import { filterPII } from '../services/anonymizer'
 
+/**
+ * Desembrulha o doc admin-config/llm (gravado com envelope { data: {...} }),
+ * aceitando também o formato legado (campos na raiz). Retorna null se inválido.
+ */
+function unwrapGlobalLLM(raw: unknown): LLMConfigLike | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, any>
+  const d = r.data && typeof r.data === 'object' ? r.data : r
+  if (d && d.provider && d.model) return d as LLMConfigLike
+  return null
+}
+
 const ChatRequestSchema = z.object({
   conversationId: z.string().nullable().optional(),
   message: z.string().min(1).max(2000),
   allowExternal: z.boolean().optional().default(false),
   requestLegalAnalysis: z.boolean().optional().default(false),
   effort: z.enum(['rapido', 'padrao', 'profundo']).optional().default('padrao'),
+  // Canal de eventos gerado pelo cliente ANTES de enviar, para a timeline ao vivo.
+  clientEventId: z.string().min(6).max(80).optional(),
   context: z.object({
     documentId: z.string().nullable().optional(),
     intent: z.string().nullable().optional(),
@@ -58,7 +72,7 @@ export const chatV2 = onCall(
       logger.error('chatV2 schema fail', { errors: parsed.error.errors, received: request.data })
       throw new HttpsError('invalid-argument', `Mensagem inválida: ${parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ')}`)
     }
-    const { conversationId, message, allowExternal, requestLegalAnalysis, effort, context } = parsed.data
+    const { conversationId, message, allowExternal, requestLegalAnalysis, effort, context, clientEventId } = parsed.data
     const start = Date.now()
 
     try {
@@ -111,10 +125,24 @@ export const chatV2 = onCall(
 
       // 6. Resolver LLM config
       const db = getFirestore()
-      const globalSnap = await db.doc('admin-config/llm').get()
-      const userSnap = await db.doc(`users/${userId}/llmConfig`).get()
-      const globalCfg = globalSnap.exists ? (globalSnap.data() as LLMConfigLike) : null
-      const userCfg = userSnap.exists ? (userSnap.data() as LLMConfigLike) : null
+      const [globalSnap, userDocSnap] = await Promise.all([
+        db.doc('admin-config/llm').get(),
+        db.doc(`users/${userId}`).get(),
+      ])
+      // admin-config/llm é gravado com envelope { data: {...} }; desembrulha + valida.
+      const globalCfg = unwrapGlobalLLM(globalSnap.exists ? globalSnap.data() : null)
+      if (globalCfg) {
+        // A apiKey global fica no doc secreto (master-only); fallback à chave legada.
+        const { readGlobalApiKey } = await import('../services/global-llm')
+        globalCfg.apiKey = await readGlobalApiKey(globalCfg.apiKey)
+      }
+      // Config pessoal do usuário fica no CAMPO `llmConfig` do doc users/{uid}.
+      const userDocData = userDocSnap.exists ? (userDocSnap.data() as Record<string, any>) : null
+      const userCfgRaw = userDocData?.llmConfig
+      const userCfg: LLMConfigLike | null =
+        userCfgRaw && userCfgRaw.provider && userCfgRaw.model ? (userCfgRaw as LLMConfigLike) : null
+      const userAgentsRaw = userDocData?.agentsConfig ?? null
+      const adminForcesGlobal = !!globalCfg
       const effectiveConfig: LLMConfigLike | null = globalCfg || userCfg
 
       // OpenRouter é o PROVIDOR PRINCIPAL E DE FALLBACK da plataforma.
@@ -151,12 +179,46 @@ export const chatV2 = onCall(
       }
 
       // 7. System prompt
-      const systemPrompt = buildSystemPrompt({
+      let systemPrompt = buildSystemPrompt({
         userName: profile.displayName,
         userAreas: profile.inferredAreas,
         allowExternal,
         hasCorpusChunks: chunks.length > 0,
       })
+
+      // 7b. Aplicar config do agente orquestrador (modelo dedicado + skills)
+      try {
+        const {
+          loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt,
+          normalizeUserAgentModels, resolveUserAgentLLMConfig,
+        } = await import('../services/agents-config')
+        const agentsConfig = await loadAgentsConfig()
+        const orchestrator = agentsConfig.agents.orchestrator
+        // Skills do orquestrador são sempre definidas pelo admin (global).
+        const skillsPrompt = buildAgentSkillsPrompt(orchestrator)
+        if (skillsPrompt) systemPrompt = `${systemPrompt}\n\n${skillsPrompt}`
+
+        if (adminForcesGlobal) {
+          // Admin define o modelo: dedicado do orquestrador (admin) > global.
+          const resolved = resolveAgentLLMConfig(orchestrator, configToUse)
+          if (resolved && orchestrator.model.mode === 'custom') {
+            configToUse = resolved
+            provider = resolved.provider
+            model = resolved.model
+          }
+        } else {
+          // Delegado ao usuário: modelo por-agente do próprio usuário > sua config base.
+          const userAgents = normalizeUserAgentModels(userAgentsRaw)
+          const resolved = resolveUserAgentLLMConfig(userAgents.orchestrator, configToUse)
+          if (resolved && userAgents.orchestrator?.mode === 'custom') {
+            configToUse = resolved
+            provider = resolved.provider
+            model = resolved.model
+          }
+        }
+      } catch (agentsErr) {
+        logger.warn('chat-v2: falha ao aplicar agents-config do orquestrador', { err: (agentsErr as Error)?.message })
+      }
 
       // 8. Carregar configs de pesquisa (try/catch — usa defaults se Firestore falhar)
       const typesMod = await import('../agents/types')
@@ -187,10 +249,12 @@ export const chatV2 = onCall(
       let iterations = 0
       let criticScore: number | undefined
 
-      // Fase 2f: ID virtual para a timeline de eventos em tempo real
-      const pipelineConvId = conversationId || `pending_${userId}_${Date.now()}`
-      const pipelineMessageId = `msg-${Date.now()}-live`
-      const onTrail = createOnTrailHandler(pipelineConvId, pipelineMessageId)
+      // Timeline em tempo real: usa o canal gerado pelo CLIENTE (clientEventId),
+      // que já se inscreveu ANTES de enviar. Assim os eventos aparecem ao vivo,
+      // inclusive na 1ª mensagem (quando ainda não há conversationId).
+      const eventChannelId = clientEventId || conversationId || `pending_${userId}_${Date.now()}`
+      const pipelineMessageId = clientEventId || `msg-${Date.now()}-live`
+      const onTrail = createOnTrailHandler(eventChannelId, pipelineMessageId)
 
       try {
         const { runAgentPipeline } = await import('../agents/pipeline')

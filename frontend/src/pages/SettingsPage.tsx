@@ -6,6 +6,7 @@
 import { useAuth } from '@/hooks/useAuth'
 import { useAuthStore } from '@/stores/authStore'
 import { LLMSettings } from '@/components/AgentWidget/settings/LLMSettings'
+import { UserAgentsConfig } from '@/components/AgentWidget/settings/UserAgentsConfig'
 import { AgentWidget } from '@/components/AgentWidget'
 import { useChatStore } from '@/stores/chatStore'
 import { LogOut, MessageCircle, User as UserIcon } from 'lucide-react'
@@ -60,6 +61,13 @@ export function SettingsPage() {
           (OpenAI, Anthropic, OpenRouter, etc.).
         </p>
         <LLMSettings />
+
+        <h2 style={{ ...sectionTitleStyle, marginTop: 32 }}>Modelos por agente (opcional)</h2>
+        <p style={sectionDescStyle}>
+          Se quiser, escolha um modelo diferente para cada agente. Caso contrário,
+          todos usam a sua configuração pessoal acima.
+        </p>
+        <UserAgentsConfig />
       </main>
     </div>
   )

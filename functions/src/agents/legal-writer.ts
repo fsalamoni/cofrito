@@ -35,8 +35,10 @@ export async function runLegalWriter(input: LegalWriterInput): Promise<{ answer:
   const { question, compiled, llmConfig, geminiApiKey, logger } = input
   const start = Date.now()
 
-  // Se tem material suficiente, usar LLM
-  if (compiled.hasEnoughMaterial && compiled.sources.length > 0) {
+  // Se há QUALQUER fonte (mesmo que não cubra tudo com perfeição), o agente
+  // apresenta os documentos MAIS PRÓXIMOS e explica como aproveitá-los.
+  // A consulta formal só é oferecida quando NÃO há absolutamente nenhum material.
+  if (compiled.sources.length > 0) {
     try {
       const userPrompt = buildLegalWriterUserPrompt(question, compiled)
       const out = await generateWithProvider({
@@ -45,7 +47,7 @@ export async function runLegalWriter(input: LegalWriterInput): Promise<{ answer:
         config: { ...llmConfig, maxTokens: 4000, temperature: 0.2 }, timeoutMs: 90_000,
         geminiApiKey,
       })
-      logger.info('legal-writer.success', { durationMs: Date.now() - start })
+      logger.info('legal-writer.success', { durationMs: Date.now() - start, hasEnough: compiled.hasEnoughMaterial })
       return { answer: out.content }
     } catch (err: any) {
       logger.warn('legal-writer.fallback', { err: err?.message })
@@ -53,9 +55,9 @@ export async function runLegalWriter(input: LegalWriterInput): Promise<{ answer:
     }
   }
 
-  // Sem material — usar mensagem padrão
-  const hasInternal = compiled.sources.some((s) => s.type === 'internal-document' || s.type === 'norm' || s.type === 'legislation' || s.type === 'jurisprudence' || s.type === 'doctrine')
-  const hasWeb = compiled.sources.some((s) => s.type === 'web' || s.type === 'intranet' || s.type === 'external-document')
+  // Sem NENHUM material — usar mensagem padrão (aqui sim, oferece consulta formal)
+  const hasInternal = false
+  const hasWeb = false
   return { answer: buildFallbackMessage(hasInternal, hasWeb, input.allowExternal) }
 }
 

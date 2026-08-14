@@ -160,12 +160,12 @@ export function parseStructuredJson(textContent: string): StructuredDocumentJson
       }
       if (parsed.v === 1 && typeof parsed.fullText === 'string') {
         // Converter v1 para v2
-        const v1 = parsed as { meta: any; sections: any[]; fullText: string }
+        const v1 = parsed as { meta: Record<string, unknown>; sections: unknown[]; fullText: string }
         const text = v1.fullText
         const { paragraphs } = joinBrokenParagraphs(text)
         return {
           v: 2,
-          meta: { ...v1.meta, paragraphsJoined: 0, headersRemoved: 0 },
+          meta: { ...v1.meta, paragraphsJoined: 0, headersRemoved: 0 } as StructuredDocumentMetaV2,
           paragraphs: paragraphs.map((p, i) => ({ i, text: p })),
           fullText: text,
           sections: [],
@@ -279,7 +279,7 @@ function removeHeadersFooters(text: string): { cleanedText: string; headersRemov
  * Detecta paragrafos quebrados entre paginas e os junta.
  */
 function joinBrokenParagraphs(text: string): { paragraphs: string[]; paragraphsJoined: number } {
-  let preprocessed = text
+  const preprocessed = text
     .replace(/\f/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

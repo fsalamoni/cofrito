@@ -77,7 +77,13 @@ export function buildSearchKeywords(input: {
 
   // 6. keyPoints.items (frases curtas - pegar so palavras-chave)
   input.keyPoints?.items?.forEach(item => {
-    const text = typeof item === 'string' ? item : ((item as any).titulo || (item as any).descricao || '')
+    let text: string
+    if (typeof item === 'string') {
+      text = item
+    } else {
+      const r = item as unknown as Record<string, unknown>
+      text = (typeof r.titulo === 'string' ? r.titulo : '') + ' ' + (typeof r.descricao === 'string' ? r.descricao : '')
+    }
     text.split(/\s+/).forEach((w: string) => {
       const clean = w.toLowerCase().replace(/[^a-z0-9áéíóúçãõ]/g, '')
       if (clean.length > 3) set.add(clean)

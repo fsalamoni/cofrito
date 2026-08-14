@@ -15,6 +15,7 @@ import { logger } from 'firebase-functions'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
 import { analyzeAcervoDoc, getHeuristicAnalysis, type AcervoPipelineFlags } from '../services/acervo-analyzer'
+import type { LLMConfigLike } from '../services/llm-providers'
 import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from '../services/storage'
@@ -611,10 +612,29 @@ export async function runAnalysisInBackground(input: {
     const { flags, llmOverride } = await resolveAcervoPipelineConfig()
     logger.info('acervo-pipeline: flags resolved', { docId: input.docId, flags, hasOverride: !!llmOverride })
 
-    // Resolver LLM config: override > admin global > env
-    let llmConfig = await resolveLLMConfigForAnalysis(input.uid)
+    // Resolver LLM config: agente 'acervo' (custom) > override legado > admin global > env
+    let llmConfig: LLMConfigLike | null = await resolveLLMConfigForAnalysis(input.uid)
+    let acervoExtra = ''
+    try {
+      const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
+      const { loadLegalTaxonomy, buildTaxonomyPromptBlock } = await import('../services/legal-taxonomy')
+      const [agentsConfig, taxonomy] = await Promise.all([loadAgentsConfig(), loadLegalTaxonomy()])
+      const acervoAgent = agentsConfig.agents.acervo
+      acervoExtra = [buildTaxonomyPromptBlock(taxonomy), buildAgentSkillsPrompt(acervoAgent)]
+        .filter(Boolean).join('\n\n')
+      const resolved = resolveAgentLLMConfig(acervoAgent, llmConfig)
+      if (resolved) {
+        llmConfig = resolved
+        if (acervoAgent.model.mode === 'custom') {
+          logger.info('acervo-pipeline: usando modelo dedicado do agente acervo', { provider: resolved.provider, model: resolved.model })
+        }
+      }
+    } catch (err) {
+      logger.warn('acervo-pipeline: falha ao resolver agents-config/taxonomia, usando global', { err: (err as Error).message })
+    }
+    // Compat: override legado (admin-config/acervo-pipeline.llmOverride) ainda tem prioridade se preenchido.
     if (llmOverride && llmOverride.provider && llmOverride.model && llmOverride.apiKey) {
-      logger.info('acervo-pipeline: usando llmOverride', { provider: llmOverride.provider, model: llmOverride.model })
+      logger.info('acervo-pipeline: usando llmOverride legado', { provider: llmOverride.provider, model: llmOverride.model })
       llmConfig = {
         provider: llmOverride.provider as any,
         model: llmOverride.model,
@@ -652,6 +672,7 @@ export async function runAnalysisInBackground(input: {
       text: input.text,
       llmConfig,
       pipelineFlags: flags,
+      extraInstructions: acervoExtra,
     })
     // Salvar resultado (status='analisado' SEMPRE se o analyzer retornou dados)
     await input.docRef.set(
@@ -726,19 +747,22 @@ export async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
   const db = getFirestore()
   const masterSnap = await db.doc('admin-config/llm').get()
   if (masterSnap.exists) {
-    const data = masterSnap.data() as any
-    if (data.data && data.data.apiKey && data.data.model && data.data.provider) {
-      return {
-        provider: data.data.provider,
-        model: data.data.model,
-        apiKey: data.data.apiKey,
-        temperature: data.data.temperature,
-        maxTokens: data.data.maxTokens,
+    const raw = masterSnap.data() as any
+    // Doc gravado com envelope { data: {...} }; aceita também o formato legado (raiz).
+    const d = raw?.data && typeof raw.data === 'object' ? raw.data : raw
+    if (d && d.model && d.provider) {
+      // Chave: doc secreto (master-only); fallback à chave legada no doc principal.
+      const { readGlobalApiKey } = await import('../services/global-llm')
+      const apiKey = await readGlobalApiKey(d.apiKey)
+      if (apiKey) {
+        return {
+          provider: d.provider,
+          model: d.model,
+          apiKey,
+          temperature: d.temperature,
+          maxTokens: d.maxTokens,
+        }
       }
-    }
-    if (data.apiKey && data.model && data.provider) {
-      // Legacy format
-      return { provider: data.provider, model: data.model, apiKey: data.apiKey }
     }
   }
   // Fallback: GEMINI_API_KEY
@@ -799,6 +823,94 @@ export const adminGetDocumentTextContent = onCall(
       textContent: data.textContent || '',
       textOriginal: data.textOriginal || '',
     }
+  },
+)
+
+/**
+ * Salva o texto reconstruido editado pelo admin.
+ * Rebuild do JSON v2 (parágrafos íntegros) a partir do texto editado e persiste
+ * em `textContent`. Não mexe no `textOriginal` (extração crua original).
+ */
+export const adminSaveDocumentTextContent = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 120, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId, fullText } = (request.data || {}) as { docId: string; fullText: string }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    if (typeof fullText !== 'string') throw new HttpsError('invalid-argument', 'fullText obrigatorio')
+    const db = getFirestore()
+    const docRef = db.doc(`corpus/${docId}`)
+    const docSnap = await docRef.get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+    const data = docSnap.data() || {}
+    const fileName = (data.fileName as string) || docId
+    const pageCount = ((data.meta as Record<string, unknown> | undefined)?.pages as number | undefined)
+    // Reconstrói o JSON v2 a partir do texto editado (mantém parágrafos íntegros).
+    const structured = textToStructuredJson(fullText.slice(0, 900_000), fileName, pageCount)
+    const textContentJson = serializeStructuredJson(structured)
+    await docRef.set(
+      {
+        textContent: textContentJson,
+        storageFormat: 'json-v1',
+        textEditedAt: FieldValue.serverTimestamp(),
+        textEditedBy: request.auth.uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    )
+    logger.info('adminSaveDocumentTextContent.done', {
+      docId,
+      uid: request.auth.uid,
+      paragraphs: structured.meta.paragraphs,
+      chars: fullText.length,
+    })
+    return {
+      ok: true,
+      paragraphs: structured.meta.paragraphs,
+      chars: structured.fullText.length,
+    }
+  },
+)
+
+/**
+ * Atualiza a análise editada manualmente pelo admin (classificação e/ou ementa).
+ * Faz merge no doc do corpus. Não roda LLM. Marca a edição para auditoria.
+ */
+export const adminUpdateDocumentAnalysis = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 60 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId, classification, ementa } = (request.data || {}) as {
+      docId: string
+      classification?: Record<string, unknown> | null
+      ementa?: Record<string, unknown> | null
+    }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    if (!classification && !ementa) {
+      throw new HttpsError('invalid-argument', 'Envie classification e/ou ementa')
+    }
+    const db = getFirestore()
+    const docRef = db.doc(`corpus/${docId}`)
+    const docSnap = await docRef.get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+
+    const update: Record<string, unknown> = {
+      analysisEditedAt: FieldValue.serverTimestamp(),
+      analysisEditedBy: request.auth.uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    if (classification && typeof classification === 'object') update.classification = classification
+    if (ementa && typeof ementa === 'object') update.ementa = ementa
+    await docRef.set(update, { merge: true })
+    logger.info('adminUpdateDocumentAnalysis.done', {
+      docId,
+      uid: request.auth.uid,
+      editedClassification: !!classification,
+      editedEmenta: !!ementa,
+    })
+    return { ok: true }
   },
 )
 

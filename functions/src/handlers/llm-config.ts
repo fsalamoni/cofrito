@@ -11,6 +11,7 @@ import { getFirestore, FieldValue } from '../services/firestore'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { assertAdminMaster } from '../middleware/auth'
 import { listModelsForProvider, type LLMConfigLike, type LLMProvider } from '../services/llm-providers'
+import { readGlobalApiKey, writeGlobalApiKey, deleteGlobalApiKey, isMaskedKey } from '../services/global-llm'
 
 // ── USER: get/set/delete config pessoal (campo no user doc) ───────────────
 
@@ -77,14 +78,21 @@ export const adminGetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
   const loaded = await loadConfigDoc<any>('admin-config/llm', 'llm-global')
   if (!loaded) return null
   const data = loaded.data
+  // Chave: doc secreto (master-only); fallback à chave legada no doc principal.
+  const apiKey = await readGlobalApiKey(data.apiKey)
   return {
     provider: data.provider,
     model: data.model,
     baseUrl: data.baseUrl,
+    temperature: typeof data.temperature === 'number' ? data.temperature : undefined,
+    maxTokens: typeof data.maxTokens === 'number' ? data.maxTokens : undefined,
     scope: 'global',
-    hasApiKey: !!data.apiKey,
-    apiKeyMasked: data.apiKey ? maskKey(data.apiKey) : '',
+    // "active": há um provider+model+apiKey válidos gravados
+    active: !!(data.provider && data.model && apiKey),
+    hasApiKey: !!apiKey,
+    apiKeyMasked: apiKey ? maskKey(apiKey) : '',
     updatedAt: loaded.updatedAt,
+    updatedBy: loaded.updatedBy,
   }
 })
 
@@ -95,16 +103,27 @@ export const adminSetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
   const cfg = request.data as LLMConfigLike | null
   if (!cfg) {
     await getFirestore().doc('admin-config/llm').delete()
+    await deleteGlobalApiKey()
     return { ok: true, removed: true }
   }
+  // Preservar a chave quando vier vazia/mascarada (não sobrescrever a salva).
+  let apiKey = cfg.apiKey
+  if (isMaskedKey(apiKey)) {
+    apiKey = await readGlobalApiKey()
+  }
+  // Doc principal SEM a apiKey (legível por signed-in só p/ detectar/exibir provider/model).
+  const rest: Record<string, unknown> = { ...cfg }
+  delete rest.apiKey
   const result = await saveConfigDoc(
-    { ...cfg, scope: 'global' },
+    { ...rest, scope: 'global' },
     {
       uid: request.auth!.uid,
       path: 'admin-config/llm',
       tag: 'llm-global',
     },
   )
+  // Chave no doc secreto (master-only nas regras).
+  await writeGlobalApiKey(apiKey || '', request.auth!.uid)
   return { ok: true, savedAt: result.savedAt }
 })
 

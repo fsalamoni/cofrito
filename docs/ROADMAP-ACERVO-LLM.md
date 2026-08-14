@@ -1,0 +1,214 @@
+# Roadmap — Acervo, Agentes e Configurações de LLM
+
+Documento de planejamento das melhorias no acervo (banco de dados de documentos),
+nos agentes da plataforma e nas configurações de LLM. Escrito a partir de uma
+leitura completa do código atual (backend `functions/` + frontend `frontend/`).
+
+> **Legenda:** ✅ feito nesta fase · 🔜 pendente (próximas fases) · 🧩 já existia
+
+---
+
+## Diagnóstico (estado atual do código)
+
+O que **já existia** e funciona razoavelmente:
+
+- 🧩 **Reconstrução do documento** (`services/document-json-converter.ts`, JSON v2):
+  remove cabeçalhos/rodapés repetidos, junta parágrafos quebrados entre páginas e
+  detecta seções. A base de "não deixar a quebra de página quebrar o parágrafo" existe.
+- 🧩 **Ementa jurídica e Pontos Relevantes** (`services/acervo-analyzer.ts`):
+  estruturas ricas — ementa (tipo, assunto, síntese, fundamentação, conclusão,
+  keywords, matérias) e pontos relevantes (pessoas, cargos, vínculos de parentesco/
+  afinidade/compadrio, citações jurídicas). O prompt já pede o mapeamento
+  autoridade → parentesco → circunstâncias.
+
+Causas reais dos problemas relatados:
+
+1. **Sem LLM configurado → cai na heurística** (regex), que gera ementa/pontos
+   genéricos ("Aguardando reanálise…"). Se a config global não persiste/aparece,
+   todo upload cai na heurística → parece que "a IA não analisa".
+2. **Bug de persistência (corrigido nesta fase):** a config global era **gravada
+   com envelope** `{ data: {...} }` (via `config-store`), mas o front lia os campos
+   na **raiz** do documento → valores salvos nunca reapareciam nos campos.
+3. **Não existia** arquitetura por-agente (orquestrador / criador de acervo /
+   pesquisador externo) com escolha de modelo próprio + **CRUD de skills**.
+4. **Não existia** config por-agente por usuário.
+5. **Não existe** visualizador/editor web do documento reconstruído (só o texto).
+
+---
+
+## Fase 1 — Backbone de Configuração de LLM/Agentes ✅ (esta entrega)
+
+**Backend**
+
+- ✅ `services/agents-config.ts`: modelo unificado de agentes
+  (`orchestrator`, `acervo`, `web-researcher`) com `enabled`, `model`
+  (`mode: global | custom` + provider/model/apiKey/baseUrl/temperature/maxTokens)
+  e `skills[]` (CRUD). Inclui `resolveAgentLLMConfig()` (custom → senão global) e
+  `buildAgentSkillsPrompt()` (injeta skills ativas no system prompt). Skills-semente
+  por agente já preenchidas.
+- ✅ `handlers/agents-config.ts`: `adminGetAgentsConfig` (apiKey **sempre mascarado**
+  + `hasApiKey`) e `adminSaveAgentsConfig` (**preserva** a apiKey salva quando o
+  front envia máscara/vazio). Persistido em `admin-config/agents`.
+- ✅ Correção do getter global (`adminGetGlobalLLM`): passa a devolver
+  `temperature`, `maxTokens`, `active` e `updatedBy`.
+- ✅ Fiação real (não é só UI):
+  - **Acervo:** `runAnalysisInBackground` e a fila de processamento resolvem o
+    modelo do agente `acervo` e injetam as skills configuradas na análise.
+  - **Orquestrador:** `chat-v2` aplica modelo dedicado + skills do orquestrador no
+    system prompt do chat.
+- ✅ Testes: `services/agents-config.test.ts` (7 casos). Suite backend: 135 verdes.
+
+**Frontend**
+
+- ✅ Correção do bug de persistência em `hooks/useLLMConfig.ts`: lê o **envelope**
+  `{ data }` **e** o formato legado → valores globais reaparecem nos campos.
+- ✅ Renomeado no admin: **"Pipeline do Acervo" → "Configurações de LLM"**. A página
+  passou a consolidar 3 seções: (1) LLM Global, (2) Agentes e Skills, (3) Análise do Acervo.
+- ✅ `pages/admin/AgentsConfig.tsx`: cartão por agente com toggle ativo/inativo,
+  seletor "LLM global vs modelo dedicado" (provider/model/apiKey/baseUrl) e **CRUD
+  de skills** (criar, editar nome/descrição/prompt, ligar/desligar, excluir).
+- ✅ Removida a duplicação do override de modelo do acervo (agora único lugar: o
+  cartão "Criador de Acervo").
+
+---
+
+## Fase 2 — Config de LLM/Agentes por usuário ✅ (esta entrega)
+
+**Backend**
+
+- ✅ `services/agents-config.ts`: `USER_AGENT_IDS` (`orchestrator`, `web-researcher`
+  — o acervo é só do admin), `normalizeUserAgentModels()` e
+  `resolveUserAgentLLMConfig()` (modelo do usuário custom → base do usuário).
+- ✅ `handlers/agents-config.ts`: `getUserAgentsConfig` / `setUserAgentsConfig`
+  (autenticados, escopo do usuário; apiKey mascarado + preservado). Persistidos no
+  campo `users/{uid}.agentsConfig`.
+- ✅ **Bug de resolução do chat corrigido** (`chat-v2`): a config global era lida
+  como doc **plano**, mas está gravada com **envelope** `{ data }` → `provider`
+  vinha `undefined` e o chat caía no stub. Agora desembrulha (`unwrapGlobalLLM`) e lê
+  a config do usuário do **campo** `users/{uid}.llmConfig` (antes lia um subdoc
+  inexistente `users/{uid}/llmConfig`).
+- ✅ Cascata implementada: **admin força global** → modelo do orquestrador (admin)
+  custom → global; **senão (delegado ao usuário)** → modelo por-agente do usuário →
+  config pessoal → env.
+
+**Frontend**
+
+- ✅ `components/AgentWidget/settings/UserAgentsConfig.tsx`: modelo dedicado por
+  agente do usuário (só aparece quando o admin não força global).
+- ✅ Integrado em `SettingsPage` como seção "Modelos por agente (opcional)".
+- ✅ Testes backend: 137 verdes.
+
+## Fase 3 — Qualidade do acervo (ementa / pontos / ingestão) 🟡 (parcial nesta entrega)
+
+**Backend**
+
+- ✅ **Mapeamento editável de tipos jurídicos** (`services/legal-taxonomy.ts`):
+  `tiposDocumento`, `areasDireito`, `assuntos` com defaults ricos; `loadLegalTaxonomy()`
+  e `buildTaxonomyPromptBlock()`. Handlers `adminGetLegalTaxonomy` /
+  `adminSaveLegalTaxonomy` (persistido em `admin-config/legal-taxonomy`).
+- ✅ A taxonomia é **injetada no system prompt** do agente de acervo (upload + fila),
+  junto com as skills configuradas → o Criador de Acervo prefere o vocabulário mapeado.
+- ✅ Testes: `services/legal-taxonomy.test.ts` (4 casos). Suite: 142 verdes.
+
+**Frontend**
+
+- ✅ Novo item admin **"Tipos Jurídicos"** (`pages/admin/LegalTaxonomyConfig.tsx`):
+  editor de chips por lista (adicionar/remover), com salvar.
+- ✅ **Telemetria** na planilha do acervo: `AnalysisMethodBadge` mostra se o documento
+  foi analisado por **LLM** ou caiu na **Heurística (sem LLM)** — com dica de reanalisar.
+
+**Fase 3b ✅ (esta entrega)**
+
+- ✅ Prompt do agente de acervo **endurecido** (`services/acervo-analyzer.ts`):
+  - Ementa: `fundamentacao` deve registrar **como o redator tratou cada ponto** e
+    **quais fundamentos** (tese/ratio/dispositivos/súmulas/precedentes) foram decisivos;
+    `sintese` e `conclusao` mais substantivas.
+  - Pontos relevantes: novo item **3.0** (assunto principal + complementares + todas as
+    circunstâncias), com o exemplo de nepotismo (autoridade → grau de parentesco →
+    outros vínculos) e registro de como cada circunstância foi tratada.
+  - Cobertura de leitura: `MAX_SOURCE_CHARS` 14k→20k; itens de pontos relevantes 8→15.
+- ✅ Testes ajustados (cap 15). Suite: 142 verdes.
+- ℹ️ Reprocessar o acervo existente: usar o batch já existente (`adminReanalyzeBatch` /
+  fila em "Upload de Documentos") — nenhum código novo necessário.
+
+## Fase 4 — Visualizador / Editor do documento 🟡 (parcial nesta entrega)
+
+- 🧩 Visualização do **original** (PDF via URL assinada) e do **texto reconstruído**
+  já existiam como abas do viewer (Documento / Texto).
+- 🐛 **Bug corrigido:** `adminGetDocumentTextContent` e `adminGetDocumentDownloadUrl`
+  estavam **definidos mas não exportados** em `index.ts` → não eram deployados, então
+  as abas "Texto"/"Documento" falhavam em produção. Agora exportados.
+- ✅ **Edição do texto reconstruído** (`adminSaveDocumentTextContent`): o admin edita o
+  texto na aba "Texto" e salva; o backend **reconstrói o JSON v2** (parágrafos íntegros,
+  sem quebras de página) a partir do texto editado e persiste em `textContent`.
+- ✅ Cópia de trecho já disponível (botão "Copiar texto").
+
+- ✅ **Edição da análise na planilha** (`adminUpdateDocumentAnalysis`): o admin edita
+  **classificação** (natureza, tipo, áreas, assuntos, contexto) e **ementa** (tipo,
+  assunto, síntese, fundamentação, conclusão, áreas, tópicos, matérias, keywords)
+  direto na aba "Análise" e salva — atende o pedido de "editar cada documento e as
+  informações e dados pertinentes".
+
+**Pendente (Fase 4b)**
+
+- 🔜 Editor **rich-text** (negrito/itálico/listas) e cópia com formatação — hoje o
+  editor é texto integral com parágrafos preservados (atende leitura/edição, sem
+  formatação rica).
+- 🔜 Re-indexar automaticamente a busca após a edição (hoje: reanalisar/reingestar).
+
+## Fase 5 — Pastas e Configurações de Pesquisa 🔜
+
+- 🔜 Revisar persistência/exibição de "Pastas de Pesquisa" (`SourcePaths`) e
+  "Configurações de Pesquisa" (`ResearchConfig`) no mesmo padrão (valores salvos
+  reaparecem + status).
+
+## Fase 6 — Segurança / Hardening 🟡 (parcial nesta entrega)
+
+- ✅ **apiKey global protegida** (`services/global-llm.ts`): a chave saiu do doc
+  legível `admin-config/llm` e foi para `admin-config/llm-secret`, cuja **leitura é
+  restrita ao master** nas regras do Firestore. Implementação **retrocompatível**:
+  os leitores de servidor (chat, análise do acervo, get global) tentam o doc secreto
+  e caem na chave legada se ainda existir — nada quebra até o admin re-salvar.
+  `adminSetGlobalLLM` preserva a chave quando o formulário envia máscara/vazio.
+- 🔜 Idem para as chaves por-agente em `admin-config/agents` e das configs de pesquisa
+  (`web-search`, `deep-search`, `intranet`) — mesmo padrão (doc secreto master-only).
+
+---
+
+## Fase 7 — UX do chat orquestrador (etapas de pensamento + entrega) ✅
+
+**Timeline ao vivo (corrigida e enriquecida)**
+
+- 🐛 **Bug crítico corrigido:** os eventos da timeline eram gravados em
+  `agentEvents/{cid}/{eventId}` (3 segmentos = referência de coleção, não de
+  documento) e lidos como coleção de 2 segmentos — **ambos paths inválidos**, então
+  a timeline nunca recebia eventos. Agora usa a subcoleção válida
+  `agentEvents/{canal}/events/{eventId}`.
+- ✅ **Timeline realmente ao vivo:** o cliente gera um `clientEventId` **antes** de
+  enviar e já se inscreve no canal — os passos aparecem em tempo real inclusive na 1ª
+  mensagem (antes só "reprisavam" por 1,5s após a resposta).
+- ✅ **Passos legíveis e informativos:** "Compreendendo o pedido" (com o raciocínio e
+  as áreas detectadas), "Pesquisando no acervo/na web" (onde), e "Entregando N
+  documento(s)" com os **títulos** dos documentos (o que está trazendo).
+
+**Entrega da resposta**
+
+- ✅ **Análise do pedido + todos os documentos:** a resposta padrão agora abre com
+  "Entendimento do seu pedido" (raciocínio + pontos + áreas), lista **todos** os
+  documentos encontrados e explica **como aproveitá-los**.
+- ✅ **Documentos mais próximos + lógica:** quando o material não cobre tudo, o agente
+  apresenta os **mais próximos** e explica como usá-los (em vez de dizer "nada
+  encontrado" e descartar os parciais — bug corrigido no legal-writer).
+- ✅ **Consulta formal no momento certo:** só é destacada quando **não há material**;
+  havendo material, fica como opção discreta ("caso nenhum material seja suficiente").
+
+## Arquitetura de resolução de modelo (após Fase 1)
+
+```
+Chat (orquestrador):   orchestrator.custom → global(admin) → user → env → stub
+Acervo (upload):       acervo.custom       → llmOverride(legado) → admin global → GEMINI env → heurística
+Pesquisador web:       (base pronta; fiação de modelo dedicado na Fase 2/3)
+```
+
+As **skills ativas** de cada agente são concatenadas e injetadas no system prompt
+do respectivo agente (`buildAgentSkillsPrompt`).

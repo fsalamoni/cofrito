@@ -55,6 +55,36 @@ describe('mapToNarrative', () => {
       expect(result?.type).toBe('searching-web')
       expect(result?.count).toBe(3)
     })
+
+    it('internal inclui titulos dos documentos', () => {
+      const result = mapToNarrative('sources_found', { source: 'internal', count: 2, titles: ['Parecer X', 'TAC Y'], ts: '2026-08-11T16:00:00Z' }, conv, msg)
+      expect(result?.titles).toEqual(['Parecer X', 'TAC Y'])
+    })
+
+    it('compiled com count -> compiling (entrega)', () => {
+      const result = mapToNarrative('sources_found', { source: 'compiled', count: 3, titles: ['A', 'B'], ts: '2026-08-11T16:00:00Z' }, conv, msg)
+      expect(result?.type).toBe('compiling')
+      expect(result?.details).toContain('Entregando')
+      expect(result?.titles).toEqual(['A', 'B'])
+    })
+
+    it('compiled com count 0 -> null', () => {
+      const result = mapToNarrative('sources_found', { source: 'compiled', count: 0, ts: '2026-08-11T16:00:00Z' }, conv, msg)
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('plan (compreensao do pedido)', () => {
+    it('inclui o raciocinio e os pontos como titulos', () => {
+      const result = mapToNarrative('plan', {
+        plan: { reasoning: 'Pedido sobre nepotismo', points: [{ query: 'nepotismo em cargo comissionado' }], detectedAreas: ['Administrativo'] },
+        ts: '2026-08-11T16:00:00Z',
+      }, conv, msg)
+      expect(result?.type).toBe('planning')
+      expect(result?.details).toContain('nepotismo')
+      expect(result?.details).toContain('Administrativo')
+      expect(result?.titles).toEqual(['nepotismo em cargo comissionado'])
+    })
   })
 
   describe('agent_end', () => {

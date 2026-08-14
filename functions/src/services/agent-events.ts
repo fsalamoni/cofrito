@@ -40,6 +40,8 @@ export interface NarrativeEvent {
   durationMs?: number
   status?: 'success' | 'error' | 'skipped'
   count?: number
+  /** Títulos de documentos encontrados/entregues (para exibir na timeline). */
+  titles?: string[]
 }
 
 /**
@@ -55,32 +57,51 @@ export function mapToNarrative(
   switch (rawType) {
     case 'agent_start':
       if (rawData.role === 'orchestrator') {
-        return { ...base, type: 'thinking', role: rawData.role, details: 'Analisando pergunta...' }
+        return { ...base, type: 'thinking', role: rawData.role, details: 'Compreendendo o pedido...' }
       }
       if (rawData.role === 'researcher-internal') {
-        return { ...base, type: 'searching-acervo', role: rawData.role, details: 'Buscando no acervo interno...' }
+        return { ...base, type: 'searching-acervo', role: rawData.role, details: 'Pesquisando no acervo interno do CAOCIPP...' }
       }
       if (rawData.role === 'researcher-web') {
-        return { ...base, type: 'searching-web', role: rawData.role, details: 'Buscando na web externa...' }
+        return { ...base, type: 'searching-web', role: rawData.role, details: 'Pesquisando em fontes externas (web)...' }
       }
       if (rawData.role === 'compiler') {
-        return { ...base, type: 'compiling', role: rawData.role, details: 'Compilando fontes encontradas...' }
+        return { ...base, type: 'compiling', role: rawData.role, details: 'Organizando e priorizando os documentos...' }
       }
       if (rawData.role === 'legal-writer') {
-        return { ...base, type: 'answering', role: rawData.role, details: 'Elaborando resposta juridica...' }
+        return { ...base, type: 'answering', role: rawData.role, details: 'Elaborando a análise e a entrega...' }
       }
       return null
-    case 'plan':
-      return { ...base, type: 'planning', details: 'Plano de pesquisa definido' }
-    case 'sources_found':
-      // Adicionar detalhe de quantas fontes
+    case 'plan': {
+      // Mostra que o agente COMPREENDEU o pedido: raciocínio + pontos + áreas.
+      const plan = rawData.plan || {}
+      const points: string[] = Array.isArray(plan.points) ? plan.points.map((p: any) => p.query).filter(Boolean) : []
+      const areas: string[] = Array.isArray(plan.detectedAreas) ? plan.detectedAreas : []
+      const reasoning = typeof plan.reasoning === 'string' ? plan.reasoning : ''
+      const detailParts: string[] = []
+      if (reasoning) detailParts.push(reasoning)
+      if (areas.length) detailParts.push(`Áreas: ${areas.join(', ')}.`)
+      return {
+        ...base,
+        type: 'planning',
+        details: detailParts.join(' ') || 'Pontos de pesquisa definidos.',
+        titles: points.slice(0, 6),
+      }
+    }
+    case 'sources_found': {
+      const titles: string[] = Array.isArray(rawData.titles) ? rawData.titles : []
       if (rawData.source === 'internal') {
-        return { ...base, type: 'searching-acervo', details: `${rawData.count} fonte(s) encontrada(s) no acervo`, count: rawData.count }
+        return { ...base, type: 'searching-acervo', details: `${rawData.count} documento(s) encontrado(s) no acervo`, count: rawData.count, titles }
       }
       if (rawData.source === 'web') {
-        return { ...base, type: 'searching-web', details: `${rawData.count} fonte(s) encontrada(s) na web`, count: rawData.count }
+        return { ...base, type: 'searching-web', details: `${rawData.count} resultado(s) na web`, count: rawData.count, titles }
+      }
+      if (rawData.source === 'compiled') {
+        if (!rawData.count) return null
+        return { ...base, type: 'compiling', details: `Entregando ${rawData.count} documento(s)`, count: rawData.count, titles }
       }
       return null
+    }
     case 'agent_end':
       if (rawData.role === 'orchestrator') {
         return null  // ja temos o "thinking" inicial
@@ -106,19 +127,23 @@ export function mapToNarrative(
 
 /**
  * Persiste um evento narrativo no Firestore.
- * Path: agentEvents/{conversationId}/{eventId}
- *   eventId = `{ts}-{type}` (ordenado por ts)
+ * Path: agentEvents/{channelId}/events/{eventId}  (documento VÁLIDO: 4 segmentos)
+ *   eventId ordenado por ts.
+ *
+ * IMPORTANTE: o path anterior `agentEvents/{cid}/{eventId}` tinha 3 segmentos
+ * (referência de coleção, não de documento) e o `.doc()` falhava — por isso a
+ * timeline nunca recebia eventos. Aqui usamos a subcoleção `events`.
  */
 export async function saveNarrativeEvent(event: NarrativeEvent): Promise<void> {
   const db = getFirestore()
   const eventId = `${event.ts.replace(/[:.]/g, '-')}-${event.type}-${Math.random().toString(36).slice(2, 8)}`
   await db
-    .doc(`agentEvents/${event.conversationId}/${eventId}`)
+    .doc(`agentEvents/${event.conversationId}/events/${eventId}`)
     .set({
       ...event,
       createdAt: FieldValue.serverTimestamp(),
     })
-  // Marca o messageId como contendo eventos (para o front saber se deve ouvir)
+  // Marca o canal como contendo eventos (para o front saber se deve ouvir)
   await db
     .doc(`agentEvents/${event.conversationId}`)
     .set(

@@ -228,7 +228,7 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
     internalSources = intRun.result?.sources ?? []
     allSources.push(...internalSources)
     emit({ type: 'agent_end', role: 'researcher-internal', ts: new Date().toISOString(), status: (intRun.run.status === 'pending' ? 'error' : intRun.run.status), durationMs: intRun.run.durationMs ?? 0 })
-    emit({ type: 'sources_found', count: internalSources.length, ts: new Date().toISOString(), source: 'internal' })
+    emit({ type: 'sources_found', count: internalSources.length, ts: new Date().toISOString(), source: 'internal', titles: internalSources.slice(0, 6).map((s) => s.title) })
   } else {
     runs.push(makeSkippedRun('researcher-internal', 'skipped by orchestrator'))
   }
@@ -251,7 +251,7 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
     webSources = webRun.result?.sources ?? []
     allSources.push(...webSources)
     emit({ type: 'agent_end', role: 'researcher-web', ts: new Date().toISOString(), status: (webRun.run.status === 'pending' ? 'error' : webRun.run.status), durationMs: webRun.run.durationMs ?? 0 })
-    emit({ type: 'sources_found', count: webSources.length, ts: new Date().toISOString(), source: 'web' })
+    emit({ type: 'sources_found', count: webSources.length, ts: new Date().toISOString(), source: 'web', titles: webSources.slice(0, 6).map((s) => s.title) })
   } else {
     runs.push(makeSkippedRun('researcher-web', !allowExternal ? 'external search disabled' : 'not required'))
   }
@@ -272,7 +272,7 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
   emit({ type: 'agent_end', role: 'compiler', ts: new Date().toISOString(), status: (compRun.run.status === 'pending' ? 'error' : compRun.run.status), durationMs: compRun.run.durationMs ?? 0 })
   const compiled = compRun.result?.compiled
   const compiledSources = compiled?.sources ?? []
-  emit({ type: 'sources_found', count: compiledSources.length, ts: new Date().toISOString(), source: 'compiled' })
+  emit({ type: 'sources_found', count: compiledSources.length, ts: new Date().toISOString(), source: 'compiled', titles: compiledSources.slice(0, 8).map((s) => s.title) })
 
   // 5) LOOP: LEGAL-WRITER → CRITIC ─────────────────────────────────────────
   let finalAnswer: string = buildFallbackMessage(internalSources.length > 0, webSources.length > 0, allowExternal)
@@ -306,8 +306,8 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
       lastDraft = finalAnswer
       emit({ type: 'agent_end', role: 'legal-writer', ts: new Date().toISOString(), status: (lwRun.run.status === 'pending' ? 'error' : lwRun.run.status), durationMs: lwRun.run.durationMs ?? 0 })
     } else if (iter === 1) {
-      // 1ª iteração sem legal-writer: gera resposta-base só com docs compilados
-      finalAnswer = buildSimpleAnswerFromSourcesCompiled(compiledSources, plan?.points ?? [], allowExternal)
+      // 1ª iteração sem legal-writer: entrega com análise do pedido + docs
+      finalAnswer = buildDeliveryAnswer(compiledSources, plan, allowExternal, compiled?.hasEnoughMaterial ?? true)
       lastDraft = finalAnswer
       runs.push(makeSkippedRun('legal-writer', 'not required at this effort level'))
     }
@@ -470,14 +470,31 @@ async function persistAgentRuns(userId: string, conversationId: string, runs: Ag
   }
 }
 
-function buildSimpleAnswerFromSourcesCompiled(
+/**
+ * Entrega padrão (document-retrieval): análise do pedido + TODOS os documentos
+ * encontrados + como aproveitá-los. A consulta formal ao CAOCIPP só é destacada
+ * quando não há material; havendo material, fica apenas como opção discreta.
+ */
+function buildDeliveryAnswer(
   sources: import('./types').SourceRef[],
-  points: import('./types').ResearchPoint[],
+  plan: import('./types').OrchestratorPlan | undefined,
   allowExternal: boolean,
+  hasEnough: boolean,
 ): string {
   if (sources.length === 0) {
     return buildFallbackMessage(true, allowExternal, allowExternal)
   }
+
+  const reasoning = plan?.reasoning?.trim()
+  const points = plan?.points ?? []
+  const areas = plan?.detectedAreas ?? []
+
+  const analysisParts: string[] = ['## Entendimento do seu pedido']
+  analysisParts.push(reasoning || 'Identifiquei o tema e pesquisei no acervo do CAOCIPP os documentos pertinentes.')
+  if (points.length > 0) analysisParts.push(`\n**Pontos pesquisados:** ${points.map((p) => p.query).join('; ')}.`)
+  if (areas.length > 0) analysisParts.push(`**Áreas envolvidas:** ${areas.join(', ')}.`)
+  const analysis = analysisParts.join('\n')
+
   const list = sources.map((s, i) => {
     const link = s.url ? `[${s.title}](${s.url})` : s.title
     return `### ${i + 1}. ${s.title}
@@ -490,13 +507,27 @@ ${s.snippet}
 """`
   }).join('\n\n')
 
-  const topics = points.length > 0 ? `\n**Pontos investigados:** ${points.map((p) => p.query).join('; ')}` : ''
+  const comoAproveitar: string[] = ['## Como aproveitar']
+  comoAproveitar.push(
+    'Os documentos acima tratam do tema solicitado e podem ser usados como base ou modelo, ' +
+    'aproveitando a fundamentação, as teses e os trechos citáveis — evitando retrabalho.',
+  )
+  if (!hasEnough || sources.length < 2) {
+    comoAproveitar.push(
+      '\nComo o material pode não cobrir integralmente o seu caso, utilize os documentos **mais próximos** ' +
+      'acima, adaptando a fundamentação ao caso concreto.',
+    )
+  }
 
-  return `## Material encontrado${topics}
+  return `${analysis}
+
+## Documentos encontrados
 
 ${list}
 
+${comoAproveitar.join('\n')}
+
 ---
 
-💡 **Deseja análise jurídica aprofundada?** Ative a opção "Análise jurídica" no chat e peça novamente. Para análise institucional, abra uma **consulta formal ao CAOCIPP**.`
+💡 Para uma **análise jurídica** sobre estes documentos, ative "Análise jurídica" e pergunte novamente. Caso **nenhum material seja suficiente** para o seu caso, você pode abrir uma **consulta formal ao CAOCIPP**.`
 }
