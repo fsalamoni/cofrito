@@ -13,8 +13,9 @@
  * Documentos sao do acervo V1 (Fase 2a/2b): corpus/uploaded/{docId}
  */
 import { useState, useEffect, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react'
-import { collection, onSnapshot, query, type Unsubscribe } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, type Unsubscribe } from 'firebase/firestore'
 import { firestore } from '@/lib/firebase'
+import { ProcessingProgressModal } from '@/components/Admin/ProcessingProgressModal'
 import {
   Upload, FileText, X, Check, Loader2, AlertCircle, Trash2, RefreshCw,
   Eye, Search, Filter, ChevronLeft, ChevronRight, X as CloseIcon,
@@ -123,6 +124,19 @@ export function DocumentCatalog() {
   // Viewer state
   const [selected, setSelected] = useState<DocumentListItem | null>(null)
   const [viewerTab, setViewerTab] = useState<'info' | 'json' | 'analise'>('info')
+  const [showProcessModal, setShowProcessModal] = useState(false)
+  // Auto-abrir modal se ja' ha fila rodando ao carregar
+  useEffect(() => {
+    const queueRef = doc(firestore, 'admin-config/processing-queue')
+    const unsub = onSnapshot(queueRef, (snap) => {
+      const data = snap.data() as { status?: string } | undefined
+      const status = data?.status
+      if (status === 'running' || status === 'paused') {
+        setShowProcessModal(true)
+      }
+    })
+    return () => { try { unsub() } catch { /* ignore */ } }
+  }, [])
   const [fullDoc, setFullDoc] = useState<any>(null)
   const [loadingFull, setLoadingFull] = useState(false)
 
@@ -683,6 +697,19 @@ export function DocumentCatalog() {
               Re-analisar todos
             </button>
             <button
+              onClick={() => setShowProcessModal(true)}
+              style={{
+                ...uploadAllBtnStyle,
+                background: '#ffffff',
+                color: '#0f172a',
+                border: '1px solid #0f172a',
+              }}
+              title="Abrir modal de visualização do processamento em andamento"
+            >
+              <Loader2 size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+              Ver processamento
+            </button>
+            <button
               onClick={fixAcervoStatus}
               disabled={reanalyzingBatch}
               style={{
@@ -973,6 +1000,12 @@ export function DocumentCatalog() {
           </div>
         </div>
       )}
+
+      {/* Modal de processamento persistente */}
+      <ProcessingProgressModal
+        open={showProcessModal}
+        onClose={() => setShowProcessModal(false)}
+      />
     </div>
   )
 }
