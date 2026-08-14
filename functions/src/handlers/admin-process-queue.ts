@@ -547,7 +547,18 @@ async function executeStep(
       }
       const fileName = (docData.fileName as string) || docId
 
-      const llmConfig = await resolveLLMConfigForAnalysis(docId)
+      let llmConfig: LLMConfigLike | null = await resolveLLMConfigForAnalysis(docId)
+      let acervoSkillsPrompt = ''
+      try {
+        const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
+        const agentsConfig = await loadAgentsConfig()
+        const acervoAgent = agentsConfig.agents.acervo
+        acervoSkillsPrompt = buildAgentSkillsPrompt(acervoAgent)
+        const resolved = resolveAgentLLMConfig(acervoAgent, llmConfig as LLMConfigLike | null)
+        if (resolved) llmConfig = resolved
+      } catch (err) {
+        logger.warn('process-queue: falha ao resolver agents-config', { err: (err as Error).message })
+      }
       let result: { classification: Classification | null; ementa: Ementa | null; keyPoints: KeyPoints }
 
       if (llmConfig) {
@@ -558,6 +569,7 @@ async function executeStep(
             fileName,
             text,
             llmConfig: llmConfig as LLMConfigLike,
+            extraInstructions: acervoSkillsPrompt,
           }),
           timeout(STEP_TIMEOUT_MS, 'classifying'),
         ])

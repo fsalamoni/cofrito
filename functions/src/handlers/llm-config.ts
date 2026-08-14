@@ -81,10 +81,15 @@ export const adminGetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
     provider: data.provider,
     model: data.model,
     baseUrl: data.baseUrl,
+    temperature: typeof data.temperature === 'number' ? data.temperature : undefined,
+    maxTokens: typeof data.maxTokens === 'number' ? data.maxTokens : undefined,
     scope: 'global',
+    // "active": há um provider+model+apiKey válidos gravados
+    active: !!(data.provider && data.model && data.apiKey),
     hasApiKey: !!data.apiKey,
     apiKeyMasked: data.apiKey ? maskKey(data.apiKey) : '',
     updatedAt: loaded.updatedAt,
+    updatedBy: loaded.updatedBy,
   }
 })
 

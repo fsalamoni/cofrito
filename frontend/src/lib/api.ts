@@ -77,6 +77,10 @@ export const api = {
   // Admin: pipeline de analise do acervo
   getAcervoPipelineConfig: () => httpsCallable<void, any>(functions, 'getAcervoPipelineConfig')(),
   saveAcervoPipelineConfig: (config: any) => httpsCallable<any, { ok: boolean; config: any }>(functions, 'saveAcervoPipelineConfig')(config),
+
+  // Admin: configuracao unificada dos agentes (modelo por-agente + skills)
+  adminGetAgentsConfig: () => httpsCallable<void, any>(functions, 'adminGetAgentsConfig')(),
+  adminSaveAgentsConfig: (config: any) => httpsCallable<any, any>(functions, 'adminSaveAgentsConfig')(config),
   adminReanalyzeDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
   adminReanalyzeBatch: (payload: { docIds?: string[]; selectAll?: boolean }) =>

@@ -86,17 +86,27 @@ export function useLLMConfig(): UseLLMConfig {
       ref,
       (snap) => {
         if (snap.exists()) {
-          const data = snap.data() as any
-          setGlobalConfig({
-            provider: data.provider,
-            model: data.model,
-            apiKey: data.apiKey ?? '',
-            baseUrl: data.baseUrl,
-            temperature: data.temperature,
-            maxTokens: data.maxTokens,
-            scope: 'global',
-            updatedAt: data.updatedAt?.toDate?.()?.toISOString() ?? data.updatedAt,
-          } as LLMConfig)
+          const raw = snap.data() as any
+          // O doc é gravado com envelope de auditoria { data: {...}, version, updatedAt }.
+          // Suportamos tambem o formato legado (campos na raiz).
+          const d = raw && typeof raw.data === 'object' && raw.data !== null ? raw.data : raw
+          if (d && (d.provider || d.model)) {
+            setGlobalConfig({
+              provider: d.provider,
+              model: d.model,
+              apiKey: d.apiKey ?? '',
+              baseUrl: d.baseUrl,
+              temperature: d.temperature,
+              maxTokens: d.maxTokens,
+              scope: 'global',
+              updatedAt:
+                raw.updatedAt?.toDate?.()?.toISOString?.() ??
+                raw.updatedAt ??
+                d.updatedAt,
+            } as LLMConfig)
+          } else {
+            setGlobalConfig(null)
+          }
         } else {
           setGlobalConfig(null)
         }

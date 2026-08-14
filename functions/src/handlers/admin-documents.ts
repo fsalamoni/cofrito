@@ -15,6 +15,7 @@ import { logger } from 'firebase-functions'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
 import { analyzeAcervoDoc, getHeuristicAnalysis, type AcervoPipelineFlags } from '../services/acervo-analyzer'
+import type { LLMConfigLike } from '../services/llm-providers'
 import { compressBuffer, estimateCompressionGain } from '../services/storage-compressor'
 import { saveConfigDoc, loadConfigDoc } from '../services/config-store'
 import { getStorage } from '../services/storage'
@@ -611,10 +612,27 @@ export async function runAnalysisInBackground(input: {
     const { flags, llmOverride } = await resolveAcervoPipelineConfig()
     logger.info('acervo-pipeline: flags resolved', { docId: input.docId, flags, hasOverride: !!llmOverride })
 
-    // Resolver LLM config: override > admin global > env
-    let llmConfig = await resolveLLMConfigForAnalysis(input.uid)
+    // Resolver LLM config: agente 'acervo' (custom) > override legado > admin global > env
+    let llmConfig: LLMConfigLike | null = await resolveLLMConfigForAnalysis(input.uid)
+    let acervoSkillsPrompt = ''
+    try {
+      const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
+      const agentsConfig = await loadAgentsConfig()
+      const acervoAgent = agentsConfig.agents.acervo
+      acervoSkillsPrompt = buildAgentSkillsPrompt(acervoAgent)
+      const resolved = resolveAgentLLMConfig(acervoAgent, llmConfig)
+      if (resolved) {
+        llmConfig = resolved
+        if (acervoAgent.model.mode === 'custom') {
+          logger.info('acervo-pipeline: usando modelo dedicado do agente acervo', { provider: resolved.provider, model: resolved.model })
+        }
+      }
+    } catch (err) {
+      logger.warn('acervo-pipeline: falha ao resolver agents-config, usando global', { err: (err as Error).message })
+    }
+    // Compat: override legado (admin-config/acervo-pipeline.llmOverride) ainda tem prioridade se preenchido.
     if (llmOverride && llmOverride.provider && llmOverride.model && llmOverride.apiKey) {
-      logger.info('acervo-pipeline: usando llmOverride', { provider: llmOverride.provider, model: llmOverride.model })
+      logger.info('acervo-pipeline: usando llmOverride legado', { provider: llmOverride.provider, model: llmOverride.model })
       llmConfig = {
         provider: llmOverride.provider as any,
         model: llmOverride.model,
@@ -652,6 +670,7 @@ export async function runAnalysisInBackground(input: {
       text: input.text,
       llmConfig,
       pipelineFlags: flags,
+      extraInstructions: acervoSkillsPrompt,
     })
     // Salvar resultado (status='analisado' SEMPRE se o analyzer retornou dados)
     await input.docRef.set(

@@ -98,6 +98,12 @@ export {
   adminSeedCorpus,
 } from './handlers/admin-acervo'
 
+// Admin: configuracao unificada dos agentes (modelo por-agente + skills)
+export {
+  adminGetAgentsConfig,
+  adminSaveAgentsConfig,
+} from './handlers/agents-config'
+
 // Admin: source paths
 export {
   adminGetSourcePaths,

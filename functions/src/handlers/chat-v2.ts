@@ -151,12 +151,30 @@ export const chatV2 = onCall(
       }
 
       // 7. System prompt
-      const systemPrompt = buildSystemPrompt({
+      let systemPrompt = buildSystemPrompt({
         userName: profile.displayName,
         userAreas: profile.inferredAreas,
         allowExternal,
         hasCorpusChunks: chunks.length > 0,
       })
+
+      // 7b. Aplicar config do agente orquestrador (modelo dedicado + skills)
+      try {
+        const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
+        const agentsConfig = await loadAgentsConfig()
+        const orchestrator = agentsConfig.agents.orchestrator
+        const skillsPrompt = buildAgentSkillsPrompt(orchestrator)
+        if (skillsPrompt) systemPrompt = `${systemPrompt}\n\n${skillsPrompt}`
+        // Modelo dedicado do orquestrador tem prioridade sobre o global, se completo.
+        const resolved = resolveAgentLLMConfig(orchestrator, configToUse)
+        if (resolved && orchestrator.model.mode === 'custom') {
+          configToUse = resolved
+          provider = resolved.provider
+          model = resolved.model
+        }
+      } catch (agentsErr) {
+        logger.warn('chat-v2: falha ao aplicar agents-config do orquestrador', { err: (agentsErr as Error)?.message })
+      }
 
       // 8. Carregar configs de pesquisa (try/catch — usa defaults se Firestore falhar)
       const typesMod = await import('../agents/types')

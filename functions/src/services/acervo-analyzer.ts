@@ -156,6 +156,8 @@ export interface AcervoAnalyzerInput {
   llmConfig: LLMConfigLike
   /** Toggles do pipeline (opcional, default: tudo ON) */
   pipelineFlags?: AcervoPipelineFlags
+  /** Instruções extras (skills configuradas do agente de acervo) anexadas ao system prompt. */
+  extraInstructions?: string
 }
 
 export interface AcervoAnalysisResult {
@@ -385,10 +387,14 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
   const userPrompt = `Arquivo: ${input.fileName}\n\n<texto>\n${sourceText}\n</texto>\n\nGere a análise estruturada (classification + ementa + key_points) para este documento.`
 
   // 2. UMA chamada LLM
+  const baseSystemPrompt = buildSystemPrompt(input.pipelineFlags)
+  const systemPrompt = input.extraInstructions && input.extraInstructions.trim()
+    ? `${baseSystemPrompt}\n\n${input.extraInstructions.trim()}`
+    : baseSystemPrompt
   let result: { content: string; tokens: { input: number; output: number; total: number } }
   try {
     result = await generateWithProvider({
-      systemPrompt: buildSystemPrompt(input.pipelineFlags),
+      systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
       // maxTokens generoso: cobre 3 outputs estruturados
       config: { ...input.llmConfig, maxTokens: 3000, temperature: 0.1 },
