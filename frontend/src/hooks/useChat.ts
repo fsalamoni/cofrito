@@ -21,6 +21,7 @@ export function useChat() {
     addMessage,
     setThinking,
     setLivePipelineMessageId,
+    setLiveEventChannel,
     setConversationId,
     startNewConversation,
   } = useChatStore()
@@ -46,6 +47,14 @@ export function useChat() {
       addMessage(userMessage)
       setThinking(true)
 
+      // Canal de eventos AO VIVO: gerado no cliente ANTES de enviar, para a
+      // timeline se inscrever imediatamente (funciona já na 1ª mensagem).
+      const liveId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+        ? crypto.randomUUID()
+        : `live-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      setLiveEventChannel(liveId)
+      setLivePipelineMessageId(liveId)
+
       // FAST-PATH CLIENT (padrão Lexio): detecta perguntas sobre o próprio agente
       // ou interações sociais e responde IMEDIATAMENTE no client, sem chamada de rede.
       // Categorias: identity, capabilities, how_it_works, how_to_use, social_*
@@ -68,17 +77,20 @@ export function useChat() {
         }
         addMessage(assistantMessage)
         setThinking(false)
+        setLiveEventChannel(null)
+        setLivePipelineMessageId(null)
         return
       }
 
       try {
-        // 2. Chama Cloud Function
+        // 2. Chama Cloud Function (passa o canal ao vivo para a timeline)
         const result = await api.chat({
           conversationId: conversationId || undefined,
           message: text,
           allowExternal,
           requestLegalAnalysis,
           effort,
+          clientEventId: liveId,
         })
 
         // 3. Adiciona resposta
@@ -103,7 +115,11 @@ export function useChat() {
           createdAt: new Date().toISOString(),
         }
         addMessage(assistantMessage)
-        setTimeout(() => setLivePipelineMessageId(null), 1500)
+        // Mantém a timeline visível por um instante e então limpa o canal ao vivo.
+        setTimeout(() => {
+          setLivePipelineMessageId(null)
+          setLiveEventChannel(null)
+        }, 1500)
       } catch (err: any) {
         const code = err?.code as string | undefined
         if (code === 'functions/not-found' || code === 'functions/unavailable') {
@@ -116,12 +132,14 @@ export function useChat() {
           pushToast(err?.message || 'Erro ao enviar mensagem', 'error')
         }
         console.error('Chat error:', err)
+        setLivePipelineMessageId(null)
+        setLiveEventChannel(null)
       } finally {
         setThinking(false)
       }
     },
     [user, conversationId, isThinking, allowExternal, requestLegalAnalysis, effort, addMessage, setThinking,
-    setLivePipelineMessageId, setConversationId, pushToast],
+    setLivePipelineMessageId, setLiveEventChannel, setConversationId, pushToast],
   )
 
   const restart = useCallback(() => {

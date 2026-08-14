@@ -123,13 +123,14 @@ describe('acervo-analyzer (agente unificado)', () => {
       expect(result.classification.natureza).toBe('consultivo')  // fallback
     })
 
-    it('limita key_points.items a 8', async () => {
+    it('limita key_points.items a 15', async () => {
+      const many = Array.from({ length: 20 }, (_, i) => String(i + 1))
       vi.mocked(generateWithProvider).mockResolvedValueOnce({
-        content: unifiedJson({ items: ['1','2','3','4','5','6','7','8','9','10','11'] }),
+        content: unifiedJson({ items: many }),
         tokens: { input: 100, output: 200, total: 300 },
       })
       const result = await analyzeAcervoDoc(mockInput)
-      expect(result.keyPoints.items).toHaveLength(8)
+      expect(result.keyPoints.items).toHaveLength(15)
     })
 
     it('limita reusable_content a 2000 chars', async () => {

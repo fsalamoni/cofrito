@@ -31,6 +31,7 @@ interface NarrativeEvent {
   durationMs?: number
   status?: 'success' | 'error' | 'skipped'
   count?: number
+  titles?: string[]
 }
 
 const TYPE_META: Record<NarrativeEvent['type'], { icon: React.ReactNode; label: string; color: string }> = {
@@ -58,7 +59,7 @@ export function OrchestratorTimeline({ conversationId, pipelineMessageId, isActi
     // Ouve eventos do Firestore em tempo real
     // IMPORTANTE: tambem faz getDocs() inicial para pegar eventos ja persistidos
     // (o pipeline pode ser mais rapido que o listener se inscrever)
-    const colRef = collection(db, `agentEvents/${conversationId}`)
+    const colRef = collection(db, `agentEvents/${conversationId}/events`)
     const q = query(colRef, orderBy('ts', 'asc'))
     let cancelled = false  // evita race condition quando o user troca de conversa rapido
     // Query inicial
@@ -132,8 +133,12 @@ export function OrchestratorTimeline({ conversationId, pipelineMessageId, isActi
                     )}
                   </div>
                   {event.details && <div style={eventDetailStyle}>{event.details}</div>}
-                  {event.count !== undefined && (
-                    <div style={eventDetailStyle}>{event.count} {event.count === 1 ? 'fonte' : 'fontes'}</div>
+                  {event.titles && event.titles.length > 0 && (
+                    <div style={titlesWrapStyle}>
+                      {event.titles.map((t, ti) => (
+                        <span key={ti} style={titleChipStyle} title={t}>{t}</span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
@@ -239,4 +244,22 @@ const eventDetailStyle: React.CSSProperties = {
   color: '#6b7280',
   marginTop: 2,
   lineHeight: 1.4,
+}
+const titlesWrapStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 4,
+  marginTop: 4,
+}
+const titleChipStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#0f172a',
+  background: '#f1f5f9',
+  border: '1px solid #e2e8f0',
+  borderRadius: 4,
+  padding: '1px 6px',
+  maxWidth: 240,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 }

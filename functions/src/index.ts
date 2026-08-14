@@ -83,6 +83,10 @@ export {
   adminDeleteDocument,
   adminGetDocument,
   adminReanalyzeDocument,
+  adminGetDocumentTextContent,
+  adminGetDocumentDownloadUrl,
+  adminSaveDocumentTextContent,
+  adminUpdateDocumentAnalysis,
 } from './handlers/admin-documents'
 export * from './handlers/admin-reanalyze'
 export * from './handlers/admin-debug'
@@ -97,6 +101,20 @@ export {
   saveAcervoPipelineConfig,
   adminSeedCorpus,
 } from './handlers/admin-acervo'
+
+// Admin: configuracao unificada dos agentes (modelo por-agente + skills)
+export {
+  adminGetAgentsConfig,
+  adminSaveAgentsConfig,
+  getUserAgentsConfig,
+  setUserAgentsConfig,
+} from './handlers/agents-config'
+
+// Admin: taxonomia juridica (tipos de documento, areas, assuntos)
+export {
+  adminGetLegalTaxonomy,
+  adminSaveLegalTaxonomy,
+} from './handlers/legal-taxonomy'
 
 // Admin: source paths
 export {

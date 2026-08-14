@@ -63,6 +63,16 @@ export const api = {
       functions,
       'adminGetDocumentDownloadUrl',
     )({ docId }),
+  adminSaveDocumentTextContent: (docId: string, fullText: string) =>
+    httpsCallable<{ docId: string; fullText: string }, { ok: boolean; paragraphs: number; chars: number }>(
+      functions,
+      'adminSaveDocumentTextContent',
+    )({ docId, fullText }),
+  adminUpdateDocumentAnalysis: (payload: { docId: string; classification?: any; ementa?: any }) =>
+    httpsCallable<{ docId: string; classification?: any; ementa?: any }, { ok: boolean }>(
+      functions,
+      'adminUpdateDocumentAnalysis',
+    )(payload),
   adminMigrateToV2: () =>
     httpsCallable<void, {
       ok: boolean
@@ -77,6 +87,18 @@ export const api = {
   // Admin: pipeline de analise do acervo
   getAcervoPipelineConfig: () => httpsCallable<void, any>(functions, 'getAcervoPipelineConfig')(),
   saveAcervoPipelineConfig: (config: any) => httpsCallable<any, { ok: boolean; config: any }>(functions, 'saveAcervoPipelineConfig')(config),
+
+  // Admin: configuracao unificada dos agentes (modelo por-agente + skills)
+  adminGetAgentsConfig: () => httpsCallable<void, any>(functions, 'adminGetAgentsConfig')(),
+  adminSaveAgentsConfig: (config: any) => httpsCallable<any, any>(functions, 'adminSaveAgentsConfig')(config),
+
+  // Usuario: modelos por-agente (quando o admin nao forca LLM global)
+  getUserAgentsConfig: () => httpsCallable<void, any>(functions, 'getUserAgentsConfig')(),
+  setUserAgentsConfig: (config: any) => httpsCallable<any, any>(functions, 'setUserAgentsConfig')(config),
+
+  // Admin: taxonomia juridica (tipos de documento, areas, assuntos)
+  adminGetLegalTaxonomy: () => httpsCallable<void, any>(functions, 'adminGetLegalTaxonomy')(),
+  adminSaveLegalTaxonomy: (taxonomy: any) => httpsCallable<any, any>(functions, 'adminSaveLegalTaxonomy')(taxonomy),
   adminReanalyzeDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
   adminReanalyzeBatch: (payload: { docIds?: string[]; selectAll?: boolean }) =>

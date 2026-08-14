@@ -75,6 +75,8 @@ export interface ChatRequest {
   allowExternal?: boolean
   requestLegalAnalysis?: boolean
   effort?: 'rapido' | 'padrao' | 'profundo'
+  /** Canal de eventos gerado pelo cliente para a timeline ao vivo. */
+  clientEventId?: string
   context?: {
     documentId?: string
     intent?: string

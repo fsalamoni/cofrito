@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  Save, Loader2, CheckCircle2, AlertCircle, Brain, FileText, ListChecks, RefreshCw, Settings, Sliders,
+  Save, Loader2, CheckCircle2, AlertCircle, Brain, FileText, ListChecks, RefreshCw, Sliders,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -41,8 +41,6 @@ export function AcervoPipelineConfig() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showOverride, setShowOverride] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
 
   useEffect(() => {
     void load()
@@ -55,7 +53,6 @@ export function AcervoPipelineConfig() {
       const r = await api.getAcervoPipelineConfig()
       const data = (r.data as any)?.data || r.data
       setConfig({ ...DEFAULT_CONFIG, ...data })
-      setShowOverride(!!data?.llmOverride)
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar')
     } finally {
@@ -166,76 +163,9 @@ export function AcervoPipelineConfig() {
         </div>
       </div>
 
-      {/* Secao 3: Override de modelo */}
-      <div style={sectionStyle}>
-        <h3 style={sectionTitleStyle}>
-          <Settings size={16} /> Modelo LLM (opcional)
-        </h3>
-        <p style={sectionDescStyle}>
-          Por padrao, o pipeline usa o LLM global configurado. Ative o override para usar
-          um modelo dedicado para o acervo (pode ser diferente do chat).
-        </p>
-
-        <Toggle
-          icon={<Settings size={16} color="#1a4d8f" />}
-          label="Usar modelo dedicado"
-          description="Se ON: usa o provider/model/apiKey abaixo. Se OFF: usa o LLM global."
-          value={showOverride}
-          onChange={(v) => {
-            setShowOverride(v)
-            if (!v) update('llmOverride', null)
-          }}
-        />
-
-        {showOverride && (
-          <div style={{ marginTop: 12, padding: 12, background: '#f9fafb', borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={labelStyle}>Provider</label>
-                <select
-                  value={config.llmOverride?.provider || 'openrouter'}
-                  onChange={(e) => update('llmOverride', { ...config.llmOverride, provider: e.target.value })}
-                  style={selectStyle}
-                >
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="google">Google (Gemini)</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Modelo</label>
-                <input
-                  type="text"
-                  value={config.llmOverride?.model || ''}
-                  onChange={(e) => update('llmOverride', { ...config.llmOverride, model: e.target.value })}
-                  placeholder="ex: openai/gpt-4o-mini"
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <label style={labelStyle}>API Key</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={config.llmOverride?.apiKey || ''}
-                  onChange={(e) => update('llmOverride', { ...config.llmOverride, apiKey: e.target.value })}
-                  placeholder="sk-..."
-                  style={inputStyle}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  style={{ position: 'absolute', right: 8, top: 6, background: 'transparent', border: 'none', cursor: 'pointer' }}
-                >
-                  {showApiKey ? 'Ocultar' : 'Mostrar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+      <div style={{ ...sectionStyle, background: '#f8fafc', fontSize: 12, color: '#6b7280' }}>
+        O <strong>modelo</strong> usado pelo agente de acervo é definido em
+        <strong> “2 · Agentes e Skills” → Criador de Acervo</strong> (acima). Por padrão usa o LLM global.
       </div>
 
       {/* Save bar */}
@@ -355,24 +285,6 @@ const labelStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 4,
   marginBottom: 4,
-}
-const selectStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  borderRadius: 6,
-  border: '1px solid #d1d5db',
-  fontSize: 13,
-  fontFamily: 'inherit',
-  background: '#ffffff',
-  width: '100%',
-}
-const inputStyle: React.CSSProperties = {
-  padding: '6px 10px',
-  borderRadius: 6,
-  border: '1px solid #d1d5db',
-  fontSize: 13,
-  fontFamily: 'inherit',
-  background: '#ffffff',
-  width: '100%',
 }
 const saveBarStyle: React.CSSProperties = {
   position: 'sticky',

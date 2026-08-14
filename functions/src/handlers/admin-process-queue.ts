@@ -547,7 +547,20 @@ async function executeStep(
       }
       const fileName = (docData.fileName as string) || docId
 
-      const llmConfig = await resolveLLMConfigForAnalysis(docId)
+      let llmConfig: LLMConfigLike | null = await resolveLLMConfigForAnalysis(docId)
+      let acervoExtra = ''
+      try {
+        const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
+        const { loadLegalTaxonomy, buildTaxonomyPromptBlock } = await import('../services/legal-taxonomy')
+        const [agentsConfig, taxonomy] = await Promise.all([loadAgentsConfig(), loadLegalTaxonomy()])
+        const acervoAgent = agentsConfig.agents.acervo
+        acervoExtra = [buildTaxonomyPromptBlock(taxonomy), buildAgentSkillsPrompt(acervoAgent)]
+          .filter(Boolean).join('\n\n')
+        const resolved = resolveAgentLLMConfig(acervoAgent, llmConfig as LLMConfigLike | null)
+        if (resolved) llmConfig = resolved
+      } catch (err) {
+        logger.warn('process-queue: falha ao resolver agents-config/taxonomia', { err: (err as Error).message })
+      }
       let result: { classification: Classification | null; ementa: Ementa | null; keyPoints: KeyPoints }
 
       if (llmConfig) {
@@ -558,6 +571,7 @@ async function executeStep(
             fileName,
             text,
             llmConfig: llmConfig as LLMConfigLike,
+            extraInstructions: acervoExtra,
           }),
           timeout(STEP_TIMEOUT_MS, 'classifying'),
         ])

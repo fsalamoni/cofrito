@@ -20,13 +20,15 @@ import { AgentWidget } from '@/components/AgentWidget'
 import { useChatStore } from '@/stores/chatStore'
 import { DocumentCatalog } from './admin/DocumentCatalog'
 import { AcervoPipelineConfig } from './admin/AcervoPipelineConfig'
+import { AgentsConfig } from './admin/AgentsConfig'
+import { LegalTaxonomyConfig } from './admin/LegalTaxonomyConfig'
 import { SourcePaths } from './admin/SourcePaths'
 import { ResearchConfig } from './admin/ResearchConfig'
 import { WebSearchConfig } from './admin/WebSearchConfig'
 import { IntranetConfig } from './admin/IntranetConfig'
-import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2, Brain } from 'lucide-react'
+import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2, Tags } from 'lucide-react'
 
-type AdminTab = 'llm' | 'documents' | 'acervo' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
+type AdminTab = 'llm' | 'documents' | 'taxonomy' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
 
 export function AdminPage() {
   const { user, signOut } = useAuth()
@@ -43,6 +45,7 @@ export function AdminPage() {
 
   useEffect(() => {
     if (hash === '#/admin/documents') setTab('documents')
+    else if (hash === '#/admin/taxonomy') setTab('taxonomy')
     else if (hash === '#/admin/paths') setTab('paths')
     else if (hash === '#/admin/research') setTab('research')
     else if (hash === '#/admin/websearch') setTab('websearch')
@@ -120,10 +123,10 @@ export function AdminPage() {
           <SidebarSection title="Modelo de IA">
             <SidebarItem
               icon={<Globe size={16} />}
-              label="LLM Global"
+              label="Configurações de LLM"
               active={tab === 'llm'}
               onClick={() => { window.location.hash = '#/admin'; setTab('llm') }}
-              hint="Define a LLM padrão para todos os usuários"
+              hint="LLM global, agentes (modelo próprio) e skills"
             />
           </SidebarSection>
 
@@ -136,11 +139,11 @@ export function AdminPage() {
               hint="Enviar PDFs, DOCX, MD para o corpus"
             />
             <SidebarItem
-              icon={<Brain size={16} />}
-              label="Pipeline do Acervo"
-              active={tab === 'acervo'}
-              onClick={() => { window.location.hash = '#/admin/acervo'; setTab('acervo') }}
-              hint="Toggles dos agentes de analise + modelo"
+              icon={<Tags size={16} />}
+              label="Tipos Jurídicos"
+              active={tab === 'taxonomy'}
+              onClick={() => { window.location.hash = '#/admin/taxonomy'; setTab('taxonomy') }}
+              hint="Mapa de tipos, áreas e assuntos"
             />
             <SidebarItem
               icon={<FolderTree size={16} />}
@@ -205,12 +208,32 @@ export function AdminPage() {
         <main style={contentStyle}>
           {tab === 'llm' && (
             <>
-              <h2 style={pageTitleStyle}>Configuração de LLM Global</h2>
+              <h2 style={pageTitleStyle}>Configurações de LLM</h2>
               <p style={pageDescStyle}>
-                Quando definida, todos os usuários passam a usar esta LLM.
-                A configuração pessoal fica oculta.
+                Defina o modelo global do agente orquestrador e, se quiser, um modelo
+                dedicado + skills para cada agente da plataforma.
+              </p>
+
+              <h3 style={subHeadingStyle}>1 · LLM Global (agente orquestrador)</h3>
+              <p style={pageDescStyle}>
+                Quando definida, todos os usuários passam a usar esta LLM no chat.
+                A configuração pessoal fica oculta. Os valores salvos reaparecem nos campos.
               </p>
               <AdminSettings />
+
+              <h3 style={subHeadingStyle}>2 · Agentes e Skills</h3>
+              <p style={pageDescStyle}>
+                Cada agente pode usar o LLM global ou um modelo próprio, e tem suas próprias
+                skills/comandos (criar, editar, excluir).
+              </p>
+              <AgentsConfig />
+
+              <h3 style={subHeadingStyle}>3 · Análise do Acervo (agentes de leitura)</h3>
+              <p style={pageDescStyle}>
+                Liga/desliga cada etapa da análise automática no upload (classificação,
+                ementa, pontos relevantes) e o rerank com LLM na pesquisa.
+              </p>
+              <AcervoPipelineConfig />
             </>
           )}
           {tab === 'documents' && (
@@ -223,14 +246,14 @@ export function AdminPage() {
               <DocumentCatalog />
             </>
           )}
-          {tab === 'acervo' && (
+          {tab === 'taxonomy' && (
             <>
-              <h2 style={pageTitleStyle}>Pipeline do Acervo</h2>
+              <h2 style={pageTitleStyle}>Tipos Jurídicos</h2>
               <p style={pageDescStyle}>
-                Configure quais agentes de análise rodam em cada documento do acervo
-                e o modelo LLM usado. Por padrão, usa o LLM global carregado.
+                Mapa editável de tipos de documento, áreas do direito e assuntos.
+                Orienta o Criador de Acervo na classificação de cada documento.
               </p>
-              <AcervoPipelineConfig />
+              <LegalTaxonomyConfig />
             </>
           )}
           {tab === 'paths' && (
@@ -779,6 +802,15 @@ const pageDescStyle: React.CSSProperties = {
   fontSize: 13,
   color: '#6b7280',
   margin: '0 0 20px',
+}
+
+const subHeadingStyle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
+  color: '#0f172a',
+  margin: '28px 0 4px',
+  paddingTop: 20,
+  borderTop: '1px solid #e5e7eb',
 }
 
 const userCardStyle: React.CSSProperties = {
