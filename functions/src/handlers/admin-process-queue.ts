@@ -548,16 +548,18 @@ async function executeStep(
       const fileName = (docData.fileName as string) || docId
 
       let llmConfig: LLMConfigLike | null = await resolveLLMConfigForAnalysis(docId)
-      let acervoSkillsPrompt = ''
+      let acervoExtra = ''
       try {
         const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
-        const agentsConfig = await loadAgentsConfig()
+        const { loadLegalTaxonomy, buildTaxonomyPromptBlock } = await import('../services/legal-taxonomy')
+        const [agentsConfig, taxonomy] = await Promise.all([loadAgentsConfig(), loadLegalTaxonomy()])
         const acervoAgent = agentsConfig.agents.acervo
-        acervoSkillsPrompt = buildAgentSkillsPrompt(acervoAgent)
+        acervoExtra = [buildTaxonomyPromptBlock(taxonomy), buildAgentSkillsPrompt(acervoAgent)]
+          .filter(Boolean).join('\n\n')
         const resolved = resolveAgentLLMConfig(acervoAgent, llmConfig as LLMConfigLike | null)
         if (resolved) llmConfig = resolved
       } catch (err) {
-        logger.warn('process-queue: falha ao resolver agents-config', { err: (err as Error).message })
+        logger.warn('process-queue: falha ao resolver agents-config/taxonomia', { err: (err as Error).message })
       }
       let result: { classification: Classification | null; ementa: Ementa | null; keyPoints: KeyPoints }
 
@@ -569,7 +571,7 @@ async function executeStep(
             fileName,
             text,
             llmConfig: llmConfig as LLMConfigLike,
-            extraInstructions: acervoSkillsPrompt,
+            extraInstructions: acervoExtra,
           }),
           timeout(STEP_TIMEOUT_MS, 'classifying'),
         ])

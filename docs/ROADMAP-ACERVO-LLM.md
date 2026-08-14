@@ -98,15 +98,31 @@ Causas reais dos problemas relatados:
 - ✅ Integrado em `SettingsPage` como seção "Modelos por agente (opcional)".
 - ✅ Testes backend: 137 verdes.
 
-## Fase 3 — Qualidade do acervo (ementa / pontos / ingestão) 🔜
+## Fase 3 — Qualidade do acervo (ementa / pontos / ingestão) 🟡 (parcial nesta entrega)
 
-- 🔜 Garantir que o caminho **LLM** rode de fato no upload quando há config (telemetria
-  clara de `analysisMethod: llm|heuristic` na planilha do admin).
-- 🔜 Refino de prompt da **ementa** e dos **pontos relevantes** (checklist explícito:
-  assunto principal + complementares; autoridades e cargos; graus de parentesco;
-  outros vínculos; fundamentos que embasaram a decisão), guiado pelas skills do agente.
-- 🔜 Mapeamento formal dos **tipos jurídicos possíveis** em `admin-config` editável
-  (hoje as listas de natureza/tipo estão embutidas no prompt).
+**Backend**
+
+- ✅ **Mapeamento editável de tipos jurídicos** (`services/legal-taxonomy.ts`):
+  `tiposDocumento`, `areasDireito`, `assuntos` com defaults ricos; `loadLegalTaxonomy()`
+  e `buildTaxonomyPromptBlock()`. Handlers `adminGetLegalTaxonomy` /
+  `adminSaveLegalTaxonomy` (persistido em `admin-config/legal-taxonomy`).
+- ✅ A taxonomia é **injetada no system prompt** do agente de acervo (upload + fila),
+  junto com as skills configuradas → o Criador de Acervo prefere o vocabulário mapeado.
+- ✅ Testes: `services/legal-taxonomy.test.ts` (4 casos). Suite: 142 verdes.
+
+**Frontend**
+
+- ✅ Novo item admin **"Tipos Jurídicos"** (`pages/admin/LegalTaxonomyConfig.tsx`):
+  editor de chips por lista (adicionar/remover), com salvar.
+- ✅ **Telemetria** na planilha do acervo: `AnalysisMethodBadge` mostra se o documento
+  foi analisado por **LLM** ou caiu na **Heurística (sem LLM)** — com dica de reanalisar.
+
+**Pendente (Fase 3b)**
+
+- 🔜 Refino de prompt da **ementa** e dos **pontos relevantes** com checklist explícito
+  (assunto principal + complementares; autoridades e cargos; graus de parentesco;
+  outros vínculos; fundamentos que embasaram a decisão) — hoje já estruturado, falta
+  endurecer as instruções e validar contra a taxonomia.
 - 🔜 Reprocessar o acervo existente com o novo pipeline (batch já existe:
   `adminReanalyzeBatch` / fila).
 

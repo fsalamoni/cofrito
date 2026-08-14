@@ -614,12 +614,14 @@ export async function runAnalysisInBackground(input: {
 
     // Resolver LLM config: agente 'acervo' (custom) > override legado > admin global > env
     let llmConfig: LLMConfigLike | null = await resolveLLMConfigForAnalysis(input.uid)
-    let acervoSkillsPrompt = ''
+    let acervoExtra = ''
     try {
       const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
-      const agentsConfig = await loadAgentsConfig()
+      const { loadLegalTaxonomy, buildTaxonomyPromptBlock } = await import('../services/legal-taxonomy')
+      const [agentsConfig, taxonomy] = await Promise.all([loadAgentsConfig(), loadLegalTaxonomy()])
       const acervoAgent = agentsConfig.agents.acervo
-      acervoSkillsPrompt = buildAgentSkillsPrompt(acervoAgent)
+      acervoExtra = [buildTaxonomyPromptBlock(taxonomy), buildAgentSkillsPrompt(acervoAgent)]
+        .filter(Boolean).join('\n\n')
       const resolved = resolveAgentLLMConfig(acervoAgent, llmConfig)
       if (resolved) {
         llmConfig = resolved
@@ -628,7 +630,7 @@ export async function runAnalysisInBackground(input: {
         }
       }
     } catch (err) {
-      logger.warn('acervo-pipeline: falha ao resolver agents-config, usando global', { err: (err as Error).message })
+      logger.warn('acervo-pipeline: falha ao resolver agents-config/taxonomia, usando global', { err: (err as Error).message })
     }
     // Compat: override legado (admin-config/acervo-pipeline.llmOverride) ainda tem prioridade se preenchido.
     if (llmOverride && llmOverride.provider && llmOverride.model && llmOverride.apiKey) {
@@ -670,7 +672,7 @@ export async function runAnalysisInBackground(input: {
       text: input.text,
       llmConfig,
       pipelineFlags: flags,
-      extraInstructions: acervoSkillsPrompt,
+      extraInstructions: acervoExtra,
     })
     // Salvar resultado (status='analisado' SEMPRE se o analyzer retornou dados)
     await input.docRef.set(

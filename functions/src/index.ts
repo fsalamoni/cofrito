@@ -106,6 +106,12 @@ export {
   setUserAgentsConfig,
 } from './handlers/agents-config'
 
+// Admin: taxonomia juridica (tipos de documento, areas, assuntos)
+export {
+  adminGetLegalTaxonomy,
+  adminSaveLegalTaxonomy,
+} from './handlers/legal-taxonomy'
+
 // Admin: source paths
 export {
   adminGetSourcePaths,

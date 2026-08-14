@@ -85,6 +85,10 @@ export const api = {
   // Usuario: modelos por-agente (quando o admin nao forca LLM global)
   getUserAgentsConfig: () => httpsCallable<void, any>(functions, 'getUserAgentsConfig')(),
   setUserAgentsConfig: (config: any) => httpsCallable<any, any>(functions, 'setUserAgentsConfig')(config),
+
+  // Admin: taxonomia juridica (tipos de documento, areas, assuntos)
+  adminGetLegalTaxonomy: () => httpsCallable<void, any>(functions, 'adminGetLegalTaxonomy')(),
+  adminSaveLegalTaxonomy: (taxonomy: any) => httpsCallable<any, any>(functions, 'adminSaveLegalTaxonomy')(taxonomy),
   adminReanalyzeDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
   adminReanalyzeBatch: (payload: { docIds?: string[]; selectAll?: boolean }) =>

@@ -82,6 +82,7 @@ interface DocumentListItem {
   } | null
   analyzedAt?: string
   analysisError?: string
+  analysisMethod?: string
   createdAt?: string
   updatedAt?: string
   createdBy?: string
@@ -234,6 +235,7 @@ export function DocumentCatalog() {
               keyPoints: data.keyPoints || null,
               analyzedAt: data.analyzedAt,
               analysisError: data.analysisError,
+              analysisMethod: data.analysisMethod,
               createdAt: data.createdAt,
               updatedAt: data.updatedAt,
               createdBy: data.createdBy,
@@ -1142,6 +1144,24 @@ function StatusBadge({ status }: { status?: string }) {
   )
 }
 
+function AnalysisMethodBadge({ method }: { method?: string }) {
+  if (!method) return <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+  const isLlm = method === 'llm'
+  const c = isLlm
+    ? { bg: '#dcfce7', fg: '#166534', label: 'LLM' }
+    : { bg: '#fef3c7', fg: '#92400e', label: 'Heurística (sem LLM)' }
+  return (
+    <span
+      title={isLlm
+        ? 'Analisado pelo modelo LLM configurado.'
+        : 'Gerado por heurística (regex) — verifique se há um LLM configurado em Configurações de LLM. Reanalise para usar o LLM.'}
+      style={{ padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: c.bg, color: c.fg }}
+    >
+      {c.label}
+    </span>
+  )
+}
+
 function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
   return (
     <div>
@@ -1150,6 +1170,7 @@ function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
       <Field label="Titulo">{doc.title || '—'}</Field>
       <Field label="Tipo">{doc.type || '—'}</Field>
       <Field label="Status"><StatusBadge status={doc.status} /></Field>
+      <Field label="Método de análise"><AnalysisMethodBadge method={doc.analysisMethod} /></Field>
       <Field label="Storage path">{full?.storagePath || '—'}</Field>
       <Field label="Formato">{doc.format || '—'}</Field>
       <Field label="Paginas">{doc.pages || '—'}</Field>

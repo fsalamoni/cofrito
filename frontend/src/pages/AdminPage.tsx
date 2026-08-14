@@ -21,13 +21,14 @@ import { useChatStore } from '@/stores/chatStore'
 import { DocumentCatalog } from './admin/DocumentCatalog'
 import { AcervoPipelineConfig } from './admin/AcervoPipelineConfig'
 import { AgentsConfig } from './admin/AgentsConfig'
+import { LegalTaxonomyConfig } from './admin/LegalTaxonomyConfig'
 import { SourcePaths } from './admin/SourcePaths'
 import { ResearchConfig } from './admin/ResearchConfig'
 import { WebSearchConfig } from './admin/WebSearchConfig'
 import { IntranetConfig } from './admin/IntranetConfig'
-import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2 } from 'lucide-react'
+import { LogOut, MessageCircle, Shield, Globe, Users, FileText, Upload, FolderTree, Activity, Search, Globe2, Building2, Tags } from 'lucide-react'
 
-type AdminTab = 'llm' | 'documents' | 'acervo' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
+type AdminTab = 'llm' | 'documents' | 'taxonomy' | 'paths' | 'research' | 'websearch' | 'intranet' | 'users' | 'admins' | 'audit'
 
 export function AdminPage() {
   const { user, signOut } = useAuth()
@@ -44,6 +45,7 @@ export function AdminPage() {
 
   useEffect(() => {
     if (hash === '#/admin/documents') setTab('documents')
+    else if (hash === '#/admin/taxonomy') setTab('taxonomy')
     else if (hash === '#/admin/paths') setTab('paths')
     else if (hash === '#/admin/research') setTab('research')
     else if (hash === '#/admin/websearch') setTab('websearch')
@@ -135,6 +137,13 @@ export function AdminPage() {
               active={tab === 'documents'}
               onClick={() => { window.location.hash = '#/admin/documents'; setTab('documents') }}
               hint="Enviar PDFs, DOCX, MD para o corpus"
+            />
+            <SidebarItem
+              icon={<Tags size={16} />}
+              label="Tipos Jurídicos"
+              active={tab === 'taxonomy'}
+              onClick={() => { window.location.hash = '#/admin/taxonomy'; setTab('taxonomy') }}
+              hint="Mapa de tipos, áreas e assuntos"
             />
             <SidebarItem
               icon={<FolderTree size={16} />}
@@ -235,6 +244,16 @@ export function AdminPage() {
                 Após o upload, os documentos ficam disponíveis para consulta pela LLM.
               </p>
               <DocumentCatalog />
+            </>
+          )}
+          {tab === 'taxonomy' && (
+            <>
+              <h2 style={pageTitleStyle}>Tipos Jurídicos</h2>
+              <p style={pageDescStyle}>
+                Mapa editável de tipos de documento, áreas do direito e assuntos.
+                Orienta o Criador de Acervo na classificação de cada documento.
+              </p>
+              <LegalTaxonomyConfig />
             </>
           )}
           {tab === 'paths' && (
