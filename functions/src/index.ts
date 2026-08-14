@@ -89,6 +89,7 @@ export * from './handlers/admin-debug'
 export * from './handlers/admin-debug-public'
 export * from './handlers/admin-fix'
 export * from './handlers/admin-fix-textcontent'
+export * from './handlers/admin-process-queue'
 
 // Admin: configuracao do pipeline de analise do acervo
 export {

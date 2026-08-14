@@ -52,7 +52,7 @@ export const api = {
   adminDeleteDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; removedChunks: number }>(functions, 'adminDeleteDocument')(docId),
   adminGetDocument: (docId: string) =>
-    httpsCallable<string, any>(functions, 'adminGetDocument')(docId),
+    httpsCallable<{ docId: string }, any>(functions, 'adminGetDocument')({ docId }),
   // Admin: pipeline de analise do acervo
   getAcervoPipelineConfig: () => httpsCallable<void, any>(functions, 'getAcervoPipelineConfig')(),
   saveAcervoPipelineConfig: (config: any) => httpsCallable<any, { ok: boolean; config: any }>(functions, 'saveAcervoPipelineConfig')(config),
@@ -88,6 +88,33 @@ export const api = {
       skippedIds: string[]
       errors: Array<{ docId: string; err: string }>
     }>(functions, 'adminRebuildTextContent')(),
+  adminStartQueue: (payload: { docIds?: string[]; selectAll?: boolean }) =>
+    httpsCallable<typeof payload, { ok: boolean; queued: number; totalInQueue: number; message: string }>(functions, 'adminStartQueue')(payload),
+  adminGetQueueStatus: () =>
+    httpsCallable<void, {
+      queue: {
+        docIds: string[]
+        currentDocId: string | null
+        currentStep: string | null
+        status: 'idle' | 'running' | 'paused' | 'completed' | 'error'
+        totalDocs: number
+        doneCount: number
+        errorCount: number
+      } | null
+      docs: Array<{
+        id: string
+        fileName?: string
+        processingState: { step: string; stepLabel: string; error?: string; failedStep?: string }
+        hasTextContent: boolean
+        hasClassification: boolean
+        hasKeyPoints: boolean
+        hasEmenta: boolean
+      }>
+    }>(functions, 'adminGetQueueStatus')(),
+  adminClearQueue: () =>
+    httpsCallable<void, { ok: boolean; message: string }>(functions, 'adminClearQueue')(),
+  adminForceQueueTick: () =>
+    httpsCallable<void, { ok: boolean; processed: boolean; currentDocId: string | null; currentStep: string | null; queueStatus: string }>(functions, 'adminForceQueueTick')(),
 
   // Admin: source paths
   adminGetSourcePaths: () =>
