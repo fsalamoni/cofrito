@@ -1,129 +1,93 @@
-/**
- * Testes do document-json-converter.
- */
 import { describe, it, expect } from 'vitest'
-import {
-  textToStructuredJson,
-  parseStructuredJson,
-  resolveTextContent,
-  getStructuredMeta,
-  serializeStructuredJson,
-} from './document-json-converter'
+import { textToStructuredJsonV2, parseStructuredJson, resolveTextContent, serializeStructuredJson, getStructuredSections } from './document-json-converter'
 
-describe('document-json-converter', () => {
-  describe('textToStructuredJson', () => {
-    it('converte texto simples em JSON v1', () => {
-      const text = 'Este é o primeiro parágrafo do documento.\n\nEste é o segundo parágrafo.'
-      const result = textToStructuredJson(text, 'test.txt')
-      expect(result.v).toBe(1)
-      expect(result.meta.format).toBe('txt')
-      expect(result.meta.paragraphs).toBeGreaterThan(0)
-      expect(result.fullText.length).toBeGreaterThan(0)
-    })
-
-    it('detecta formato pdf', () => {
-      const result = textToStructuredJson('texto', 'doc.pdf', 5)
-      expect(result.meta.format).toBe('pdf')
-      expect(result.meta.pages).toBe(5)
-    })
-
-    it('detecta formato docx', () => {
-      const result = textToStructuredJson('texto', 'doc.docx')
-      expect(result.meta.format).toBe('docx')
-    })
-
-    it('calcula compressionRatio', () => {
-      const text = '   '.repeat(100) + 'conteudo real'
-      const result = textToStructuredJson(text, 'test.txt')
-      expect(result.meta.compressionRatio).toBeGreaterThan(0)
-    })
-
-    it('identifica secoes por heading numerado', () => {
-      const text = `Introducao.
-
-1. Primeiro topico.
-
-Conteudo do primeiro topico.
-
-2. Segundo topico.
-
-Conteudo do segundo topico.`
-      const result = textToStructuredJson(text, 'doc.txt')
-      expect(result.sections.length).toBeGreaterThan(1)
-    })
-
-    it('filtra paragrafos muito curtos', () => {
-      const text = 'a\n\nb\n\nEste parágrafo tem conteúdo suficiente para ser incluído.'
-      const result = textToStructuredJson(text, 'doc.txt')
-      expect(result.meta.paragraphs).toBe(1)
-    })
-
-    it('respeita MAX_PARAGRAPHS_PER_SECTION', () => {
-      const paragraphs = Array(1000).fill('parágrafo com conteúdo válido para o teste')
-      const text = paragraphs.join('\n\n')
-      const result = textToStructuredJson(text, 'doc.txt')
-      const totalParagraphs = result.sections.reduce((n, s) => n + s.paragraphs.length, 0)
-      expect(totalParagraphs).toBeLessThanOrEqual(200 * 500) // razoável
-    })
+describe('document-json-converter v2', () => {
+  it('gera JSON v2 basico', () => {
+    const text = `INFORMAÇÃO TÉCNICO-JURÍDICA. Objeto: Possibilidade de configuração de nepotismo na Santa Casa de Alegrete. O principio da moralidade exige transparencia.`
+    const result = textToStructuredJsonV2(text, 'teste.pdf', 1)
+    expect(result.v).toBe(2)
+    expect(result.paragraphs.length).toBeGreaterThan(0)
+    expect(result.fullText).toContain('nepotismo')
+    expect(result.meta.headersRemoved).toBe(0)
   })
 
-  describe('parseStructuredJson', () => {
-    it('retorna null se textContent é texto puro', () => {
-      expect(parseStructuredJson('texto puro')).toBeNull()
-    })
-
-    it('retorna null se textContent é muito curto', () => {
-      expect(parseStructuredJson('a')).toBeNull()
-    })
-
-    it('parseia JSON v1 válido', () => {
-      const doc = textToStructuredJson('conteudo de teste', 'test.txt')
-      const json = serializeStructuredJson(doc)
-      const parsed = parseStructuredJson(json)
-      expect(parsed).not.toBeNull()
-      expect(parsed?.v).toBe(1)
-      expect(parsed?.fullText).toContain('conteudo de teste')
-    })
-
-    it('retorna null para JSON sem v=1', () => {
-      const invalid = JSON.stringify({ v: 2, fullText: 'test' })
-      expect(parseStructuredJson(invalid)).toBeNull()
-    })
+  it('remove headers/footers repetidos', () => {
+    const pages = [
+      `INFORMAÇÃO TÉCNICO-JURÍDICA. Texto da pagina 1 com conteudo relevante.`,
+      `CABEÇALHO REPETIDO\nTexto da pagina 2 com conteudo relevante.\nRODAPÉ REPETIDO`,
+      `CABEÇALHO REPETIDO\nTexto da pagina 3 com mais conteudo.\nRODAPÉ REPETIDO`,
+      `CABEÇALHO REPETIDO\nTexto da pagina 4 com mais conteudo.\nRODAPÉ REPETIDO`,
+    ]
+    const text = pages.join('\f')
+    const result = textToStructuredJsonV2(text, 'teste.pdf', 4)
+    expect(result.meta.headersRemoved).toBeGreaterThan(0)
+    expect(result.fullText).not.toContain('CABEÇALHO REPETIDO')
+    expect(result.fullText).not.toContain('RODAPÉ REPETIDO')
   })
 
-  describe('resolveTextContent', () => {
-    it('retorna textContent direto se nao for JSON', () => {
-      expect(resolveTextContent('texto puro')).toBe('texto puro')
-    })
-
-    it('retorna fullText se for JSON v1', () => {
-      const doc = textToStructuredJson('meu conteudo', 'test.txt')
-      const json = serializeStructuredJson(doc)
-      expect(resolveTextContent(json)).toContain('meu conteudo')
-    })
+  it('junta paragrafos quebrados entre paginas', () => {
+    const text = `O Ministerio Publico do Estado do Rio Grande do Sul,
+UNIVERSIDADE FEDERAL, atraves de seu representante legal,
+instaurou Inquerito Civil para apurar suposto ato de
+improbidade administrativa em Alegrete.\fO caso envolve
+nomeacao de parente para cargo em comissao.`
+    const result = textToStructuredJsonV2(text, 'teste.pdf', 1)
+    expect(result.meta.paragraphsJoined).toBeGreaterThan(0)
   })
 
-  describe('getStructuredMeta', () => {
-    it('retorna meta de JSON v1', () => {
-      const doc = textToStructuredJson('teste', 'foo.pdf', 3)
-      const json = serializeStructuredJson(doc)
-      const meta = getStructuredMeta(json)
-      expect(meta?.filename).toBe('foo.pdf')
-      expect(meta?.pages).toBe(3)
-    })
+  it('detecta secoes (titulos em CAIXA ALTA)', () => {
+    const text = `DOCUMENTO INICIAL.
+Texto do documento inicial.
 
-    it('retorna null para texto puro', () => {
-      expect(getStructuredMeta('texto puro')).toBeNull()
-    })
+INFORMACAO TECNICO-JURIDICA.
+Texto da informacao relevante sobre o caso.
+
+CONCLUSAO.
+Texto da conclusao final.`
+    const result = textToStructuredJsonV2(text, 'teste.pdf', 1)
+    expect(result.sections.length).toBeGreaterThan(0)
+    expect(result.sections.some(s => s.title.includes('INFORMACAO'))).toBe(true)
   })
 
-  describe('serializeStructuredJson', () => {
-    it('roundtrip funciona', () => {
-      const original = textToStructuredJson('teste de roundtrip\n\nsegundo parágrafo', 'doc.pdf', 2)
-      const json = serializeStructuredJson(original)
-      const parsed = parseStructuredJson(json)
-      expect(parsed?.meta.filename).toBe('doc.pdf')
-      expect(parsed?.meta.pages).toBe(2)
+  it('mantem compatibilidade com v1 (parseStructuredJson)', () => {
+    const v1Json = JSON.stringify({
+      v: 1,
+      meta: { filename: 'teste.pdf', format: 'pdf', paragraphs: 1, charsOriginal: 10, charsStored: 10, compressionRatio: 0 },
+      sections: [],
+      fullText: 'Texto de teste',
     })
+    const result = parseStructuredJson(v1Json)
+    expect(result).not.toBeNull()
+    expect(result?.v).toBe(2)
+    expect(result?.fullText).toBe('Texto de teste')
+  })
+
+  it('resolveTextContent funciona para v1, v2 e legado', () => {
+    const v1Json = JSON.stringify({
+      v: 1,
+      meta: { filename: 't', format: 'pdf', paragraphs: 0, charsOriginal: 5, charsStored: 5, compressionRatio: 0 },
+      sections: [],
+      fullText: 'conteudo v1 teste longo',
+    })
+    const v2 = serializeStructuredJson(textToStructuredJsonV2('conteudo v2 teste longo o suficiente', 't.pdf'))
+    expect(resolveTextContent(v1Json)).toBe('conteudo v1 teste longo')
+    expect(resolveTextContent(v2)).toBe('conteudo v2 teste longo o suficiente')
+    expect(resolveTextContent('texto legado puro')).toBe('texto legado puro')
+  })
+
+  it('detect certification/heading/body types', () => {
+    const text = `INFORMAÇÃO TÉCNICO-JURÍDICA
+Conteudo do documento importante sobre Direito Constitucional.
+
+Documento eletronico assinado digitalmente conforme MP no 2.200-2/2001 de 24/08/2001.`
+    const result = textToStructuredJsonV2(text, 'teste.pdf', 1)
+    const types = result.paragraphs.map(p => p.type)
+    expect(types).toContain('certification')
+  })
+
+  it('getStructuredSections retorna secoes', () => {
+    const v2 = serializeStructuredJson(textToStructuredJsonV2(`DOCUMENTO INICIAL.\n\nTexto do documento relevante.\n\nCONCLUSAO FINAL.\n\nTexto final relevante.`, 't.pdf'))
+    const sections = getStructuredSections(v2)
+    expect(sections.length).toBeGreaterThan(0)
   })
 })

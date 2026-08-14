@@ -59,6 +59,10 @@ interface DocumentListItem {
   ementa?: {
     tipo?: string
     tipoDocumento?: string
+    numero?: string
+    data?: string
+    autor?: string
+    destinatario?: string
     assunto?: string
     sintese?: string
     /** Fundamentação jurídica principal (tese, ratio) — para documentos jurídicos */
@@ -67,9 +71,13 @@ interface DocumentListItem {
     topicos?: string[]
     conclusao?: string
     keywords?: string[]
+    materias?: string[]
   } | null
   keyPoints?: {
-    items?: string[]
+    items?: Array<{ categoria?: string; titulo?: string; descricao?: string; citacao?: string; trechoReutilizavel?: string; tags?: string[] }>
+    pessoasEnvolvidas?: Array<{ nome?: string; cargo?: string; papel?: string; contexto?: string }>
+    relacionamentos?: Array<{ tipo?: string; grau?: string; pessoas?: string[]; descricao?: string }>
+    citacoesJuridicas?: Array<{ tipo?: string; referencia?: string; citacao?: string; interpretacao?: string }>
     reusableContent?: string
   } | null
   analyzedAt?: string
@@ -123,7 +131,7 @@ export function DocumentCatalog() {
 
   // Viewer state
   const [selected, setSelected] = useState<DocumentListItem | null>(null)
-  const [viewerTab, setViewerTab] = useState<'info' | 'json' | 'analise'>('info')
+  const [viewerTab, setViewerTab] = useState<'info' | 'documento' | 'texto' | 'analise' | 'json'>('info')
   const [showProcessModal, setShowProcessModal] = useState(false)
   // Auto-abrir modal se ja' ha fila rodando ao carregar
   useEffect(() => {
@@ -139,6 +147,22 @@ export function DocumentCatalog() {
   }, [])
   const [fullDoc, setFullDoc] = useState<any>(null)
   const [loadingFull, setLoadingFull] = useState(false)
+  const [fullText, setFullText] = useState<string | null>(null)
+  const [loadingTextContent, setLoadingTextContent] = useState(false)
+  const [docDownloadUrl, setDocDownloadUrl] = useState<string | null>(null)
+
+  // Carregar textContent sob demanda (lazy) - evita DEADLINE_EXCEEDED
+  useEffect(() => {
+    if (selected && viewerTab === 'texto' && fullText === null && !loadingTextContent) {
+      void loadTextContent()
+    }
+    if (selected && viewerTab === 'documento' && docDownloadUrl === null) {
+      api.adminGetDocumentDownloadUrl(selected.id)
+        .then((r: any) => setDocDownloadUrl(r.data.url))
+        .catch((err: any) => console.warn('Erro ao gerar URL de download:', err))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewerTab, selected])
 
 
 
@@ -320,6 +344,7 @@ export function DocumentCatalog() {
     setSelected(doc)
     setViewerTab('info')
     setLoadingFull(true)
+    setFullText(null)
     try {
       const r = await api.adminGetDocument(doc.id)
       setFullDoc(r.data)
@@ -330,9 +355,41 @@ export function DocumentCatalog() {
     }
   }
 
+  async function loadTextContent() {
+    if (!selected || fullText !== null) return
+    setLoadingTextContent(true)
+    try {
+      const r = await api.adminGetDocumentTextContent(selected.id)
+      // Resolve textContent: pode ser JSON v1/v2 OU texto puro
+      const tc = r.data.textContent || ''
+      if (tc.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(tc)
+          if (parsed.v === 2 && parsed.fullText) {
+            setFullText(parsed.fullText)
+          } else if (parsed.v === 1 && parsed.fullText) {
+            setFullText(parsed.fullText)
+          } else {
+            setFullText(tc)
+          }
+        } catch {
+          setFullText(tc)
+        }
+      } else {
+        setFullText(tc || r.data.textOriginal || '(sem texto)')
+      }
+    } catch (err: any) {
+      console.error('Erro ao carregar textContent:', err)
+      setFullText('Erro ao carregar texto: ' + (err.message || 'desconhecido'))
+    } finally {
+      setLoadingTextContent(false)
+    }
+  }
+
   function closeViewer() {
     setSelected(null)
     setFullDoc(null)
+    setFullText(null)
   }
 
   async function deleteDoc(docId: string) {
@@ -484,6 +541,36 @@ export function DocumentCatalog() {
       // O listener onSnapshot ja' atualiza
     } catch (err: any) {
       alert('Erro ao corrigir: ' + (err.message || 'desconhecido'))
+    } finally {
+      setReanalyzingBatch(false)
+    }
+  }
+
+  async function migrateToV2() {
+    const ok = window.confirm(
+      'Migrar textContent para V2 (reconstrucao inteligente)?\n\n' +
+      'Vai regenerar o JSON de TODOS os docs com textOriginal, usando o algoritmo V2:\n' +
+      '- Remove cabeçalhos/rodapés repetidos\n' +
+      '- Junta paragrafos quebrados entre paginas\n' +
+      '- Detecta secoes (titulos em CAIXA ALTA)\n' +
+      '- Indexa paragrafos com tipo (heading, body, certification, etc)\n\n' +
+      'ATENCAO: esta operacao SOBRESCREVE o textContent atual. Pode levar ~1min para 500 docs.'
+    )
+    if (!ok) return
+    setReanalyzingBatch(true)
+    try {
+      const r = await api.adminMigrateToV2()
+      const data = r.data
+      alert(
+        `Migracao V2 concluida!\n\n` +
+        `Verificados: ${data.totalChecked}\n` +
+        `Migrados: ${data.migratedCount}\n` +
+        `Sem texto (nao mexidos): ${data.skippedCount}\n` +
+        `Erros: ${data.errorCount}\n\n` +
+        'O textContent agora tem a estrutura V2 (com headers/footers removidos, paragrafos juntados, secoes detectadas).'
+      )
+    } catch (err: any) {
+      alert('Erro ao migrar: ' + (err.message || 'desconhecido'))
     } finally {
       setReanalyzingBatch(false)
     }
@@ -741,6 +828,22 @@ export function DocumentCatalog() {
               <FileText size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
               Reconstruir JSON
             </button>
+            <button
+              onClick={migrateToV2}
+              disabled={reanalyzingBatch}
+              style={{
+                ...uploadAllBtnStyle,
+                background: '#ffffff',
+                color: '#db2777',
+                border: '1px solid #db2777',
+                opacity: reanalyzingBatch ? 0.5 : 1,
+                cursor: reanalyzingBatch ? 'not-allowed' : 'pointer',
+              }}
+              title="Migrar textContent para V2: remove headers/footers repetidos, junta paragrafos quebrados entre paginas, detecta secoes"
+            >
+              <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+              Migrar V2
+            </button>
           </div>
         </div>
 
@@ -970,7 +1073,7 @@ export function DocumentCatalog() {
             </div>
 
             <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb' }}>
-              {(['info', 'json', 'analise'] as const).map((tab) => (
+              {(['info', 'documento', 'texto', 'analise', 'json'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setViewerTab(tab)}
@@ -979,7 +1082,7 @@ export function DocumentCatalog() {
                     ...(viewerTab === tab ? activeTabBtnStyle : {}),
                   }}
                 >
-                  {tab === 'info' ? 'Info' : tab === 'json' ? 'JSON v1' : 'Analise'}
+                  {tab === 'info' ? 'Info' : tab === 'documento' ? 'Documento' : tab === 'texto' ? 'Texto' : tab === 'analise' ? 'Análise' : 'JSON'}
                 </button>
               ))}
             </div>
@@ -991,10 +1094,14 @@ export function DocumentCatalog() {
                 </div>
               ) : viewerTab === 'info' ? (
                 <InfoTab doc={selected} full={fullDoc} />
-              ) : viewerTab === 'json' ? (
-                <JsonTab full={fullDoc} />
-              ) : (
+              ) : viewerTab === 'documento' ? (
+                <DocumentoTab doc={selected} full={fullDoc} />
+              ) : viewerTab === 'texto' ? (
+                <TextoTab doc={selected} full={fullDoc} fullText={fullText} />
+              ) : viewerTab === 'analise' ? (
                 <AnaliseTab doc={selected} />
+              ) : (
+                <JsonTab full={fullDoc} />
               )}
             </div>
           </div>
@@ -1062,33 +1169,250 @@ function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
   )
 }
 
-function JsonTab({ full }: { full: any }) {
-  if (!full?.textContent) return <div style={{ color: '#6b7280' }}>JSON estruturado nao disponivel.</div>
-  let pretty = ''
-  try {
-    const parsed = typeof full.textContent === 'string' ? JSON.parse(full.textContent) : full.textContent
-    pretty = JSON.stringify(parsed, null, 2)
-  } catch {
-    pretty = String(full.textContent)
+function DocumentoTab({ doc }: { doc: DocumentListItem; full?: any }) {
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+  const [loadingUrl, setLoadingUrl] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (downloadUrl || loadingUrl) return
+    setLoadingUrl(true)
+    api.adminGetDocumentDownloadUrl(doc.id)
+      .then((r: any) => setDownloadUrl(r.data.url))
+      .catch((err: any) => setError(err.message || 'Erro ao gerar URL'))
+      .finally(() => setLoadingUrl(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id])
+
+  if (loadingUrl) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>
+        <Loader2 size={24} className="spin" /> Gerando URL de visualizacao...
+      </div>
+    )
   }
+  if (error) {
+    return <div style={{ padding: 16, color: '#991b1b', background: '#fee2e2', borderRadius: 6 }}>Erro: {error}</div>
+  }
+  if (!downloadUrl) {
+    return <div style={{ padding: 16, color: '#6b7280' }}>Documento nao tem arquivo original no Storage.</div>
+  }
+
+  // Detectar tipo do arquivo pelo filename
+  const fname = (doc.fileName || '').toLowerCase()
+  const isPdf = fname.endsWith('.pdf')
+  const isDocx = fname.endsWith('.docx') || fname.endsWith('.doc')
+  const isImage = /\.(png|jpg|jpeg|gif|webp)$/i.test(fname)
+  const isText = /\.(txt|md|markdown)$/i.test(fname)
+
   return (
-    <pre style={{
-      fontSize: 11,
-      fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-      background: '#0f172a',
-      color: '#e2e8f0',
-      padding: 12,
-      borderRadius: 6,
-      overflow: 'auto',
-      maxHeight: 'calc(100vh - 200px)',
-      margin: 0,
-    }}>
-      {pretty}
-    </pre>
+    <div>
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <a
+          href={downloadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          download={doc.fileName}
+          style={{
+            padding: '6px 12px',
+            background: '#1a4d8f',
+            color: '#fff',
+            borderRadius: 6,
+            fontSize: 13,
+            textDecoration: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          Baixar original
+        </a>
+        <span style={{ fontSize: 12, color: '#6b7280' }}>
+          {doc.fileName} ({(doc.originalSize ? doc.originalSize / 1024 : 0).toFixed(1)} KB)
+        </span>
+      </div>
+      {isPdf ? (
+        <iframe
+          src={downloadUrl}
+          title={doc.fileName || doc.id}
+          style={{
+            width: '100%',
+            height: 'calc(100vh - 200px)',
+            minHeight: 600,
+            border: '1px solid #e5e7eb',
+            borderRadius: 6,
+            background: '#f9fafb',
+          }}
+        />
+      ) : isImage ? (
+        <img
+          src={downloadUrl}
+          alt={doc.fileName || doc.id}
+          style={{ maxWidth: '100%', height: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}
+        />
+      ) : isDocx ? (
+        <div style={{ padding: 16, color: '#374151', background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
+          Documento Word (.docx). Baixe o original para abrir, ou veja a aba &ldquo;Texto&rdquo; para a versao reconstruida.
+        </div>
+      ) : isText ? (
+        <iframe
+          src={downloadUrl}
+          title={doc.fileName || doc.id}
+          style={{ width: '100%', height: 'calc(100vh - 200px)', minHeight: 600, border: '1px solid #e5e7eb', borderRadius: 6 }}
+        />
+      ) : (
+        <div style={{ padding: 16, color: '#374151', background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
+          Tipo de arquivo nao suporta visualizacao inline. Baixe o original para abrir.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TextoTab({ fullText }: { fullText: string | null; doc?: DocumentListItem; full?: any }) {
+  const [copied, setCopied] = useState(false)
+  if (fullText === null) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>
+        <Loader2 size={24} className="spin" /> Carregando texto reconstruido...
+      </div>
+    )
+  }
+  if (!fullText || fullText === '(sem texto)') {
+    return <div style={{ padding: 16, color: '#6b7280' }}>Texto nao disponivel para este documento.</div>
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(fullText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.warn('Erro ao copiar:', err)
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          onClick={handleCopy}
+          style={{
+            padding: '6px 12px',
+            background: copied ? '#10b981' : '#1a4d8f',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            fontSize: 12,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          {copied ? <><Check size={14} /> Copiado</> : 'Copiar texto'}
+        </button>
+        <span style={{ fontSize: 12, color: '#6b7280' }}>
+          {fullText.length.toLocaleString('pt-BR')} caracteres · texto reconstruido sem quebras de pagina
+        </span>
+      </div>
+      <textarea
+        readOnly
+        value={fullText}
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 220px)',
+          minHeight: 600,
+          fontSize: 13,
+          fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+          lineHeight: 1.6,
+          padding: 16,
+          border: '1px solid #e5e7eb',
+          borderRadius: 6,
+          background: '#ffffff',
+          color: '#0f172a',
+          resize: 'vertical',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      />
+    </div>
+  )
+}
+
+function JsonTab({ full }: { full: any }) {
+  if (!full?.hasTextContent) {
+    return (
+      <div>
+        <div style={{ padding: 16, color: '#6b7280', marginBottom: 12 }}>
+          textContent nao carregado nesta visualizacao (para evitar DEADLINE_EXCEEDED em docs grandes).
+          Use &ldquo;Reconstruir JSON&rdquo; no painel admin para regenerar.
+        </div>
+        <div style={{ padding: 16, color: '#9ca3af', fontSize: 12 }}>
+          Tamanho: {full?.textContentLength ?? 0} chars / {full?.textOriginalLength ?? 0} chars
+        </div>
+      </div>
+    )
+  }
+  // textContent ja' foi filtrado pelo backend - mas aqui tentamos mostrar via resolucao
+  // Para visualizar, use a aba "Texto" que tem o fullText
+  return (
+    <div style={{ padding: 16, color: '#6b7280' }}>
+      textContent completo disponivel (use a aba &ldquo;Texto&rdquo; para ver o conteudo reconstruido).
+      <br />
+      <br />
+      Para inspecionar o JSON cru, use a Cloud Function <code>adminGetDocumentTextContent</code> diretamente
+      ou o endpoint <code>/adminGetDocumentTextContent</code> com auth de admin.
+    </div>
   )
 }
 
 function AnaliseTab({ doc }: { doc: DocumentListItem }) {
+  // Helper para normalizar item (string OU objeto)
+  const renderItem = (item: any, i: number) => {
+    if (typeof item === 'string') {
+      return <li key={i}>{item}</li>
+    }
+    const cat = item.categoria || 'observacao'
+    const catColors: Record<string, { bg: string; fg: string }> = {
+      fato_principal: { bg: '#fef3c7', fg: '#92400e' },
+      pessoa_envolvida: { bg: '#dbeafe', fg: '#1e40af' },
+      relacionamento: { bg: '#fce7f3', fg: '#9f1239' },
+      fundamento_juridico: { bg: '#e0e7ff', fg: '#3730a3' },
+      prova: { bg: '#d1fae5', fg: '#065f46' },
+      decisao: { bg: '#fee2e2', fg: '#991b1b' },
+      circunstancia: { bg: '#f3e8ff', fg: '#6b21a8' },
+      observacao: { bg: '#f3f4f6', fg: '#374151' },
+    }
+    const colors = catColors[cat] || catColors.observacao
+    return (
+      <li key={i} style={{ marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '2px 6px',
+            background: colors.bg,
+            color: colors.fg,
+            borderRadius: 4,
+            textTransform: 'uppercase',
+          }}>
+            {cat.replace(/_/g, ' ')}
+          </span>
+          <strong style={{ fontSize: 13, color: '#0f172a' }}>{item.titulo || ''}</strong>
+        </div>
+        {item.descricao && (
+          <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5, marginLeft: 4 }}>{item.descricao}</div>
+        )}
+        {item.tags && item.tags.length > 0 && (
+          <div style={{ marginTop: 4, marginLeft: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+            {item.tags.map((t: string) => <span key={t} style={{ fontSize: 10, padding: '1px 6px', background: '#f3f4f6', color: '#6b7280', borderRadius: 3 }}>{t}</span>)}
+          </div>
+        )}
+      </li>
+    )
+  }
+
   return (
     <div>
       <h4 style={sectionTitleStyle}>Classificacao</h4>
@@ -1109,7 +1433,7 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
           {doc.classification.contexto && doc.classification.contexto.length > 0 && (
             <Field label="Contexto">
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
-                {doc.classification.contexto.map((c, i) => <li key={i}>{c}</li>)}
+                {doc.classification.contexto.map((c: string, i: number) => <li key={i}>{c}</li>)}
               </ul>
             </Field>
           )}
@@ -1120,28 +1444,54 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
         </div>
       )}
 
-      <h4 style={sectionTitleStyle}>Ementa</h4>
+      <h4 style={sectionTitleStyle}>Ementa Juridica</h4>
       {doc.ementa ? (
         <>
           <Field label="Tipo">{doc.ementa.tipo || '—'}</Field>
+          {doc.ementa.numero && <Field label="Numero">{doc.ementa.numero}</Field>}
+          {doc.ementa.data && <Field label="Data">{doc.ementa.data}</Field>}
+          {doc.ementa.autor && <Field label="Autor">{doc.ementa.autor}</Field>}
+          {doc.ementa.destinatario && <Field label="Destinatario">{doc.ementa.destinatario}</Field>}
           <Field label="Assunto">{doc.ementa.assunto || '—'}</Field>
-          <Field label="Sintese">{doc.ementa.sintese || '—'}</Field>
+          <Field label="Sintese">
+            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.sintese || '—'}</div>
+          </Field>
           {doc.ementa.fundamentacao && (
-            <Field label="Fundamentação">
+            <Field label="Fundamentacao">
               <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.fundamentacao}</div>
             </Field>
           )}
-          <Field label="Conclusao">{doc.ementa.conclusao || '—'}</Field>
-          <Field label="Topicos">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {(doc.ementa.topicos || []).map((t) => <span key={t} style={tagStyle}>{t}</span>)}
-            </div>
+          <Field label="Conclusao">
+            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.conclusao || '—'}</div>
           </Field>
-          <Field label="Keywords">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {(doc.ementa.keywords || []).map((k) => <span key={k} style={{ ...tagStyle, background: '#dbeafe', color: '#1e40af' }}>{k}</span>)}
-            </div>
-          </Field>
+          {doc.ementa.areas && doc.ementa.areas.length > 0 && (
+            <Field label="Areas">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {doc.ementa.areas.map((a: string) => <span key={a} style={tagStyle}>{a}</span>)}
+              </div>
+            </Field>
+          )}
+          {doc.ementa.topicos && doc.ementa.topicos.length > 0 && (
+            <Field label="Topicos">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {doc.ementa.topicos.map((t: string) => <span key={t} style={tagStyle}>{t}</span>)}
+              </div>
+            </Field>
+          )}
+          {doc.ementa.materias && doc.ementa.materias.length > 0 && (
+            <Field label="Materias (busca semantica)">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {doc.ementa.materias.map((m: string) => <span key={m} style={{ ...tagStyle, background: '#dcfce7', color: '#166534' }}>{m}</span>)}
+              </div>
+            </Field>
+          )}
+          {doc.ementa.keywords && doc.ementa.keywords.length > 0 && (
+            <Field label="Keywords">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {doc.ementa.keywords.map((k: string) => <span key={k} style={{ ...tagStyle, background: '#dbeafe', color: '#1e40af' }}>{k}</span>)}
+              </div>
+            </Field>
+          )}
         </>
       ) : (
         <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
@@ -1149,11 +1499,11 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
         </div>
       )}
 
-      <h4 style={sectionTitleStyle}>Pontos Relevantes</h4>
+      <h4 style={sectionTitleStyle}>Pontos Relevantes (detalhados)</h4>
       {doc.keyPoints && doc.keyPoints.items && doc.keyPoints.items.length > 0 ? (
         <>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
-            {doc.keyPoints.items.map((item, i) => <li key={i}>{item}</li>)}
+          <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', fontSize: 13, color: '#374151' }}>
+            {doc.keyPoints.items.map((item: any, i: number) => renderItem(item, i))}
           </ul>
           {doc.keyPoints.reusableContent && (
             <div style={{ marginTop: 12 }}>
@@ -1177,6 +1527,57 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
         <div style={{ color: '#6b7280', fontSize: 13 }}>
           Sem pontos relevantes.
         </div>
+      )}
+
+      {/* Pessoas Envolvidas */}
+      {doc.keyPoints && doc.keyPoints.pessoasEnvolvidas && doc.keyPoints.pessoasEnvolvidas.length > 0 && (
+        <>
+          <h4 style={sectionTitleStyle}>Pessoas Envolvidas</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+            {doc.keyPoints.pessoasEnvolvidas.map((p: any, i: number) => (
+              <li key={i} style={{ marginBottom: 4 }}>
+                <strong>{p.nome}</strong>
+                {p.cargo && <span style={{ color: '#6b7280' }}> — {p.cargo}</span>}
+                {p.papel && <span style={{ fontSize: 10, marginLeft: 4, padding: '1px 6px', background: '#dbeafe', color: '#1e40af', borderRadius: 3 }}>{p.papel}</span>}
+                {p.contexto && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{p.contexto}</div>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* Relacionamentos */}
+      {doc.keyPoints && doc.keyPoints.relacionamentos && doc.keyPoints.relacionamentos.length > 0 && (
+        <>
+          <h4 style={sectionTitleStyle}>Relacionamentos (parentesco, afinidade)</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+            {doc.keyPoints.relacionamentos.map((r: any, i: number) => (
+              <li key={i} style={{ marginBottom: 4 }}>
+                <strong>{r.descricao || r.tipo}</strong>
+                {r.grau && <span style={{ color: '#6b7280' }}> ({r.grau})</span>}
+                {r.pessoas && r.pessoas.length > 0 && (
+                  <span style={{ color: '#6b7280' }}>: {r.pessoas.join(' + ')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* Citacoes Juridicas */}
+      {doc.keyPoints && doc.keyPoints.citacoesJuridicas && doc.keyPoints.citacoesJuridicas.length > 0 && (
+        <>
+          <h4 style={sectionTitleStyle}>Citacoes Juridicas</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#374151' }}>
+            {doc.keyPoints.citacoesJuridicas.map((c: any, i: number) => (
+              <li key={i} style={{ marginBottom: 4 }}>
+                <span style={{ fontSize: 10, padding: '1px 6px', background: '#e0e7ff', color: '#3730a3', borderRadius: 3, textTransform: 'uppercase' }}>{c.tipo}</span>
+                <strong style={{ marginLeft: 4 }}>{c.referencia}</strong>
+                {c.interpretacao && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{c.interpretacao}</div>}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   )
