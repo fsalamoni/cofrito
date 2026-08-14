@@ -1430,7 +1430,151 @@ function JsonTab({ full }: { full: any }) {
   )
 }
 
+const NATUREZA_OPTS = ['consultivo', 'executorio', 'transacional', 'negocial', 'doutrinario', 'decisorio']
+
+function toCsv(arr?: string[] | null): string {
+  return Array.isArray(arr) ? arr.join(', ') : ''
+}
+function fromCsv(v: string): string[] {
+  return v.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+function AnaliseEditor({ doc, onClose }: { doc: DocumentListItem; onClose: () => void }) {
+  const c = doc.classification || {}
+  const e = doc.ementa || {}
+  const [natureza, setNatureza] = useState<string>(c.natureza || 'consultivo')
+  const [tipoDocumento, setTipoDocumento] = useState<string>(c.tipoDocumento || '')
+  const [areaDireito, setAreaDireito] = useState<string>(toCsv(c.areaDireito))
+  const [assuntos, setAssuntos] = useState<string>(toCsv(c.assuntos))
+  const [contexto, setContexto] = useState<string>(toCsv((c as any).contexto))
+
+  const [emTipo, setEmTipo] = useState<string>(e.tipo || '')
+  const [emAssunto, setEmAssunto] = useState<string>(e.assunto || '')
+  const [emNumero, setEmNumero] = useState<string>((e as any).numero || '')
+  const [emData, setEmData] = useState<string>((e as any).data || '')
+  const [emAutor, setEmAutor] = useState<string>((e as any).autor || '')
+  const [emDest, setEmDest] = useState<string>((e as any).destinatario || '')
+  const [emSintese, setEmSintese] = useState<string>(e.sintese || '')
+  const [emFund, setEmFund] = useState<string>((e as any).fundamentacao || '')
+  const [emConclusao, setEmConclusao] = useState<string>((e as any).conclusao || '')
+  const [emAreas, setEmAreas] = useState<string>(toCsv((e as any).areas))
+  const [emTopicos, setEmTopicos] = useState<string>(toCsv((e as any).topicos))
+  const [emMaterias, setEmMaterias] = useState<string>(toCsv((e as any).materias))
+  const [emKeywords, setEmKeywords] = useState<string>(toCsv((e as any).keywords))
+
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  async function save() {
+    setSaving(true)
+    setFeedback(null)
+    try {
+      const classification = {
+        natureza,
+        tipoDocumento,
+        areaDireito: fromCsv(areaDireito),
+        assuntos: fromCsv(assuntos),
+        contexto: fromCsv(contexto),
+      }
+      const ementa = {
+        ...(doc.ementa || {}),
+        tipo: emTipo,
+        tipoDocumento: emTipo,
+        assunto: emAssunto,
+        numero: emNumero || undefined,
+        data: emData || undefined,
+        autor: emAutor || undefined,
+        destinatario: emDest || undefined,
+        sintese: emSintese,
+        fundamentacao: emFund,
+        conclusao: emConclusao,
+        areas: fromCsv(emAreas),
+        topicos: fromCsv(emTopicos),
+        materias: fromCsv(emMaterias),
+        keywords: fromCsv(emKeywords),
+      }
+      await api.adminUpdateDocumentAnalysis({ docId: doc.id, classification, ementa })
+      setFeedback({ ok: true, msg: 'Análise salva. Reanalise para atualizar a busca, se necessário.' })
+      setTimeout(onClose, 1200)
+    } catch (err: any) {
+      setFeedback({ ok: false, msg: err?.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: '#4b5563', margin: '10px 0 4px' }
+  const inp: React.CSSProperties = { width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }
+  const ta: React.CSSProperties = { ...inp, resize: 'vertical', lineHeight: 1.5 }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h4 style={{ ...sectionTitleStyle, margin: 0 }}>Editar análise</h4>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={save} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {saving ? <Loader2 size={14} className="spin" /> : <Check size={14} />} Salvar
+          </button>
+          <button onClick={onClose} disabled={saving} style={{ padding: '6px 12px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+      {feedback && (
+        <div style={{ marginBottom: 8, padding: 8, borderRadius: 6, fontSize: 12, background: feedback.ok ? '#d1fae5' : '#fee2e2', color: feedback.ok ? '#065f46' : '#991b1b' }}>
+          {feedback.msg}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>Listas separadas por vírgula.</div>
+
+      <h4 style={sectionTitleStyle}>Classificação</h4>
+      <label style={lbl}>Natureza</label>
+      <select value={natureza} onChange={(ev) => setNatureza(ev.target.value)} style={inp}>
+        {NATUREZA_OPTS.map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+      <label style={lbl}>Tipo de documento</label>
+      <input value={tipoDocumento} onChange={(ev) => setTipoDocumento(ev.target.value)} style={inp} />
+      <label style={lbl}>Áreas do direito</label>
+      <input value={areaDireito} onChange={(ev) => setAreaDireito(ev.target.value)} style={inp} />
+      <label style={lbl}>Assuntos</label>
+      <input value={assuntos} onChange={(ev) => setAssuntos(ev.target.value)} style={inp} />
+      <label style={lbl}>Contexto</label>
+      <input value={contexto} onChange={(ev) => setContexto(ev.target.value)} style={inp} />
+
+      <h4 style={{ ...sectionTitleStyle, marginTop: 16 }}>Ementa jurídica</h4>
+      <label style={lbl}>Tipo</label>
+      <input value={emTipo} onChange={(ev) => setEmTipo(ev.target.value)} style={inp} />
+      <label style={lbl}>Assunto</label>
+      <input value={emAssunto} onChange={(ev) => setEmAssunto(ev.target.value)} style={inp} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div><label style={lbl}>Número</label><input value={emNumero} onChange={(ev) => setEmNumero(ev.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Data</label><input value={emData} onChange={(ev) => setEmData(ev.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Autor</label><input value={emAutor} onChange={(ev) => setEmAutor(ev.target.value)} style={inp} /></div>
+        <div><label style={lbl}>Destinatário</label><input value={emDest} onChange={(ev) => setEmDest(ev.target.value)} style={inp} /></div>
+      </div>
+      <label style={lbl}>Síntese</label>
+      <textarea value={emSintese} onChange={(ev) => setEmSintese(ev.target.value)} rows={3} style={ta} />
+      <label style={lbl}>Fundamentação</label>
+      <textarea value={emFund} onChange={(ev) => setEmFund(ev.target.value)} rows={4} style={ta} />
+      <label style={lbl}>Conclusão</label>
+      <textarea value={emConclusao} onChange={(ev) => setEmConclusao(ev.target.value)} rows={2} style={ta} />
+      <label style={lbl}>Áreas</label>
+      <input value={emAreas} onChange={(ev) => setEmAreas(ev.target.value)} style={inp} />
+      <label style={lbl}>Tópicos</label>
+      <input value={emTopicos} onChange={(ev) => setEmTopicos(ev.target.value)} style={inp} />
+      <label style={lbl}>Matérias (busca semântica)</label>
+      <input value={emMaterias} onChange={(ev) => setEmMaterias(ev.target.value)} style={inp} />
+      <label style={lbl}>Keywords</label>
+      <input value={emKeywords} onChange={(ev) => setEmKeywords(ev.target.value)} style={inp} />
+    </div>
+  )
+}
+
 function AnaliseTab({ doc }: { doc: DocumentListItem }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    return <AnaliseEditor doc={doc} onClose={() => setEditing(false)} />
+  }
   // Helper para normalizar item (string OU objeto)
   const renderItem = (item: any, i: number) => {
     if (typeof item === 'string') {
@@ -1478,6 +1622,15 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
 
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button onClick={() => setEditing(true)} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px',
+          background: '#6d28d9', color: '#fff', border: 'none', borderRadius: 6,
+          fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+        }}>
+          Editar análise
+        </button>
+      </div>
       <h4 style={sectionTitleStyle}>Classificacao</h4>
       {doc.classification ? (
         <>

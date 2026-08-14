@@ -283,7 +283,9 @@ function GlobalLLMFormWithSelect({
   }
 
   async function handleSave() {
-    if (!apiKey && provider !== 'ollama') {
+    // Ao EDITAR uma config já existente, a chave pode ficar em branco (o backend
+    // preserva a chave salva no doc secreto). Só é obrigatória em config nova.
+    if (!apiKey && !initial && provider !== 'ollama') {
       setFeedback({ ok: false, msg: 'API key é obrigatória' })
       return
     }
@@ -352,7 +354,9 @@ function GlobalLLMFormWithSelect({
             type={showKey ? 'text' : 'password'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder={provider === 'ollama' ? '(não necessária para Ollama local)' : 'sk-...'}
+            placeholder={provider === 'ollama'
+              ? '(não necessária para Ollama local)'
+              : (initial ? '•••••• (deixe em branco para manter a chave salva)' : 'sk-...')}
             style={{ ...formInputStyle, paddingRight: 36 }}
             autoComplete="off"
             spellCheck={false}

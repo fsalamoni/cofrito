@@ -129,6 +129,11 @@ export const chatV2 = onCall(
       ])
       // admin-config/llm é gravado com envelope { data: {...} }; desembrulha + valida.
       const globalCfg = unwrapGlobalLLM(globalSnap.exists ? globalSnap.data() : null)
+      if (globalCfg) {
+        // A apiKey global fica no doc secreto (master-only); fallback à chave legada.
+        const { readGlobalApiKey } = await import('../services/global-llm')
+        globalCfg.apiKey = await readGlobalApiKey(globalCfg.apiKey)
+      }
       // Config pessoal do usuário fica no CAMPO `llmConfig` do doc users/{uid}.
       const userDocData = userDocSnap.exists ? (userDocSnap.data() as Record<string, any>) : null
       const userCfgRaw = userDocData?.llmConfig

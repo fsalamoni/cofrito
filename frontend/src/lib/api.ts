@@ -68,6 +68,11 @@ export const api = {
       functions,
       'adminSaveDocumentTextContent',
     )({ docId, fullText }),
+  adminUpdateDocumentAnalysis: (payload: { docId: string; classification?: any; ementa?: any }) =>
+    httpsCallable<{ docId: string; classification?: any; ementa?: any }, { ok: boolean }>(
+      functions,
+      'adminUpdateDocumentAnalysis',
+    )(payload),
   adminMigrateToV2: () =>
     httpsCallable<void, {
       ok: boolean

@@ -164,10 +164,14 @@ export function useLLMConfig(): UseLLMConfig {
       if (config === null) {
         await setDoc(doc(firestore, 'admin-config', 'llm'), {}, { merge: false })
       } else {
+        // Nunca gravar a apiKey no doc legível pelo cliente (segurança).
+        // A chave só é persistida pela Cloud Function (doc secreto master-only).
+        const safe: Record<string, unknown> = { ...config }
+        delete safe.apiKey
         await setDoc(
           doc(firestore, 'admin-config', 'llm'),
           {
-            ...config,
+            ...safe,
             scope: 'global',
             updatedAt: new Date().toISOString(),
           },

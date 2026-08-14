@@ -747,19 +747,22 @@ export async function resolveLLMConfigForAnalysis(_uid: string): Promise<{
   const db = getFirestore()
   const masterSnap = await db.doc('admin-config/llm').get()
   if (masterSnap.exists) {
-    const data = masterSnap.data() as any
-    if (data.data && data.data.apiKey && data.data.model && data.data.provider) {
-      return {
-        provider: data.data.provider,
-        model: data.data.model,
-        apiKey: data.data.apiKey,
-        temperature: data.data.temperature,
-        maxTokens: data.data.maxTokens,
+    const raw = masterSnap.data() as any
+    // Doc gravado com envelope { data: {...} }; aceita também o formato legado (raiz).
+    const d = raw?.data && typeof raw.data === 'object' ? raw.data : raw
+    if (d && d.model && d.provider) {
+      // Chave: doc secreto (master-only); fallback à chave legada no doc principal.
+      const { readGlobalApiKey } = await import('../services/global-llm')
+      const apiKey = await readGlobalApiKey(d.apiKey)
+      if (apiKey) {
+        return {
+          provider: d.provider,
+          model: d.model,
+          apiKey,
+          temperature: d.temperature,
+          maxTokens: d.maxTokens,
+        }
       }
-    }
-    if (data.apiKey && data.model && data.provider) {
-      // Legacy format
-      return { provider: data.provider, model: data.model, apiKey: data.apiKey }
     }
   }
   // Fallback: GEMINI_API_KEY
@@ -867,6 +870,47 @@ export const adminSaveDocumentTextContent = onCall(
       paragraphs: structured.meta.paragraphs,
       chars: structured.fullText.length,
     }
+  },
+)
+
+/**
+ * Atualiza a análise editada manualmente pelo admin (classificação e/ou ementa).
+ * Faz merge no doc do corpus. Não roda LLM. Marca a edição para auditoria.
+ */
+export const adminUpdateDocumentAnalysis = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 60 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+    const { docId, classification, ementa } = (request.data || {}) as {
+      docId: string
+      classification?: Record<string, unknown> | null
+      ementa?: Record<string, unknown> | null
+    }
+    if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatorio')
+    if (!classification && !ementa) {
+      throw new HttpsError('invalid-argument', 'Envie classification e/ou ementa')
+    }
+    const db = getFirestore()
+    const docRef = db.doc(`corpus/${docId}`)
+    const docSnap = await docRef.get()
+    if (!docSnap.exists) throw new HttpsError('not-found', 'Documento nao encontrado')
+
+    const update: Record<string, unknown> = {
+      analysisEditedAt: FieldValue.serverTimestamp(),
+      analysisEditedBy: request.auth.uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    if (classification && typeof classification === 'object') update.classification = classification
+    if (ementa && typeof ementa === 'object') update.ementa = ementa
+    await docRef.set(update, { merge: true })
+    logger.info('adminUpdateDocumentAnalysis.done', {
+      docId,
+      uid: request.auth.uid,
+      editedClassification: !!classification,
+      editedEmenta: !!ementa,
+    })
+    return { ok: true }
   },
 )
 

@@ -143,6 +143,12 @@ Causas reais dos problemas relatados:
   sem quebras de página) a partir do texto editado e persiste em `textContent`.
 - ✅ Cópia de trecho já disponível (botão "Copiar texto").
 
+- ✅ **Edição da análise na planilha** (`adminUpdateDocumentAnalysis`): o admin edita
+  **classificação** (natureza, tipo, áreas, assuntos, contexto) e **ementa** (tipo,
+  assunto, síntese, fundamentação, conclusão, áreas, tópicos, matérias, keywords)
+  direto na aba "Análise" e salva — atende o pedido de "editar cada documento e as
+  informações e dados pertinentes".
+
 **Pendente (Fase 4b)**
 
 - 🔜 Editor **rich-text** (negrito/itálico/listas) e cópia com formatação — hoje o
@@ -156,12 +162,16 @@ Causas reais dos problemas relatados:
   "Configurações de Pesquisa" (`ResearchConfig`) no mesmo padrão (valores salvos
   reaparecem + status).
 
-## Fase 6 — Segurança / Hardening 🔜
+## Fase 6 — Segurança / Hardening 🟡 (parcial nesta entrega)
 
-- 🔜 **`admin-config/llm` expõe a apiKey a qualquer usuário logado** (regra
-  `allow read: if isSignedIn()`). Separar um doc público de "flag" (existe/ativo)
-  de um doc privado com as chaves, e ler as chaves só via Cloud Function.
-- 🔜 Idem para as chaves por-agente em `admin-config/agents`.
+- ✅ **apiKey global protegida** (`services/global-llm.ts`): a chave saiu do doc
+  legível `admin-config/llm` e foi para `admin-config/llm-secret`, cuja **leitura é
+  restrita ao master** nas regras do Firestore. Implementação **retrocompatível**:
+  os leitores de servidor (chat, análise do acervo, get global) tentam o doc secreto
+  e caem na chave legada se ainda existir — nada quebra até o admin re-salvar.
+  `adminSetGlobalLLM` preserva a chave quando o formulário envia máscara/vazio.
+- 🔜 Idem para as chaves por-agente em `admin-config/agents` e das configs de pesquisa
+  (`web-search`, `deep-search`, `intranet`) — mesmo padrão (doc secreto master-only).
 
 ---
 

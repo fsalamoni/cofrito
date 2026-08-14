@@ -126,8 +126,10 @@ service cloud.firestore {
     // Quando o master configura, sobrescreve o user.
 
     match /admin-config/{configId} {
-      // Lê qualquer admin (info) E o próprio user (saber se há config global)
-      allow read: if isAdmin() || isSignedIn();
+      // Lê qualquer admin (info) E o próprio user (saber se há config global).
+      // EXCEÇÃO: 'llm-secret' guarda a apiKey global e é legível SÓ pelo master.
+      allow read: if isAdminMaster()
+        || ((isAdmin() || isSignedIn()) && configId != 'llm-secret');
       // Escreve só o master
       allow write: if isAdminMaster();
     }
