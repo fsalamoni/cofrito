@@ -41,6 +41,8 @@ const ChatRequestSchema = z.object({
   allowExternal: z.boolean().optional().default(false),
   requestLegalAnalysis: z.boolean().optional().default(false),
   effort: z.enum(['rapido', 'padrao', 'profundo']).optional().default('padrao'),
+  // Canal de eventos gerado pelo cliente ANTES de enviar, para a timeline ao vivo.
+  clientEventId: z.string().min(6).max(80).optional(),
   context: z.object({
     documentId: z.string().nullable().optional(),
     intent: z.string().nullable().optional(),
@@ -70,7 +72,7 @@ export const chatV2 = onCall(
       logger.error('chatV2 schema fail', { errors: parsed.error.errors, received: request.data })
       throw new HttpsError('invalid-argument', `Mensagem inválida: ${parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ')}`)
     }
-    const { conversationId, message, allowExternal, requestLegalAnalysis, effort, context } = parsed.data
+    const { conversationId, message, allowExternal, requestLegalAnalysis, effort, context, clientEventId } = parsed.data
     const start = Date.now()
 
     try {
@@ -247,10 +249,12 @@ export const chatV2 = onCall(
       let iterations = 0
       let criticScore: number | undefined
 
-      // Fase 2f: ID virtual para a timeline de eventos em tempo real
-      const pipelineConvId = conversationId || `pending_${userId}_${Date.now()}`
-      const pipelineMessageId = `msg-${Date.now()}-live`
-      const onTrail = createOnTrailHandler(pipelineConvId, pipelineMessageId)
+      // Timeline em tempo real: usa o canal gerado pelo CLIENTE (clientEventId),
+      // que já se inscreveu ANTES de enviar. Assim os eventos aparecem ao vivo,
+      // inclusive na 1ª mensagem (quando ainda não há conversationId).
+      const eventChannelId = clientEventId || conversationId || `pending_${userId}_${Date.now()}`
+      const pipelineMessageId = clientEventId || `msg-${Date.now()}-live`
+      const onTrail = createOnTrailHandler(eventChannelId, pipelineMessageId)
 
       try {
         const { runAgentPipeline } = await import('../agents/pipeline')

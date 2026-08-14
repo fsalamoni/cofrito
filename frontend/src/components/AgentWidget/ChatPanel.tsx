@@ -395,10 +395,10 @@ const kbdStyle: React.CSSProperties = {
 
 // Wrapper que conecta OrchestratorTimeline ao store
 function OrchestratorTimelineWrapper() {
-  const { isThinking, conversationId, livePipelineMessageId } = useChatStore()
+  const { isThinking, liveEventChannel, conversationId, livePipelineMessageId } = useChatStore()
   return (
     <OrchestratorTimeline
-      conversationId={conversationId}
+      conversationId={liveEventChannel || conversationId}
       pipelineMessageId={livePipelineMessageId}
       isActive={isThinking}
     />

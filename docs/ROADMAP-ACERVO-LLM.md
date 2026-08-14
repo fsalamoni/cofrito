@@ -175,6 +175,33 @@ Causas reais dos problemas relatados:
 
 ---
 
+## Fase 7 — UX do chat orquestrador (etapas de pensamento + entrega) ✅
+
+**Timeline ao vivo (corrigida e enriquecida)**
+
+- 🐛 **Bug crítico corrigido:** os eventos da timeline eram gravados em
+  `agentEvents/{cid}/{eventId}` (3 segmentos = referência de coleção, não de
+  documento) e lidos como coleção de 2 segmentos — **ambos paths inválidos**, então
+  a timeline nunca recebia eventos. Agora usa a subcoleção válida
+  `agentEvents/{canal}/events/{eventId}`.
+- ✅ **Timeline realmente ao vivo:** o cliente gera um `clientEventId` **antes** de
+  enviar e já se inscreve no canal — os passos aparecem em tempo real inclusive na 1ª
+  mensagem (antes só "reprisavam" por 1,5s após a resposta).
+- ✅ **Passos legíveis e informativos:** "Compreendendo o pedido" (com o raciocínio e
+  as áreas detectadas), "Pesquisando no acervo/na web" (onde), e "Entregando N
+  documento(s)" com os **títulos** dos documentos (o que está trazendo).
+
+**Entrega da resposta**
+
+- ✅ **Análise do pedido + todos os documentos:** a resposta padrão agora abre com
+  "Entendimento do seu pedido" (raciocínio + pontos + áreas), lista **todos** os
+  documentos encontrados e explica **como aproveitá-los**.
+- ✅ **Documentos mais próximos + lógica:** quando o material não cobre tudo, o agente
+  apresenta os **mais próximos** e explica como usá-los (em vez de dizer "nada
+  encontrado" e descartar os parciais — bug corrigido no legal-writer).
+- ✅ **Consulta formal no momento certo:** só é destacada quando **não há material**;
+  havendo material, fica como opção discreta ("caso nenhum material seja suficiente").
+
 ## Arquitetura de resolução de modelo (após Fase 1)
 
 ```

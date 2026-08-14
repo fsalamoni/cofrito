@@ -220,12 +220,18 @@ service cloud.firestore {
     // ============================================================
     match /agentEvents/{conversationId} {
       // Eventos do pipeline nao contem dados sensiveis - apenas metadados
-      // de UI (tipo de evento, duracao, contagem de fontes).
+      // de UI (tipo de evento, duracao, contagem de fontes, titulos de docs).
       // O backend filtra por userId no payload do evento.
       // Permitimos leitura a qualquer user autenticado.
       // Escrita apenas pelo backend (Admin SDK).
       allow read: if isSignedIn();
       allow write: if false;
+
+      // Subcolecao com os eventos individuais (path valido de 4 segmentos).
+      match /events/{eventId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
     }
   }
 }
