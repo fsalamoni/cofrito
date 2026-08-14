@@ -42,5 +42,8 @@
       "prettier --write"
     ]
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1"
+  }
 }

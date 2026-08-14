@@ -1,6 +1,8 @@
 /**
  * Admin Process Queue - processamento encadeado PERSISTENTE do acervo.
  *
+ * Arquitetura: FIRESTORE TRIGGER PATTERN
+ *
  * O processamento e' feito em ETAPAS SEQUENCIAIS, uma de cada vez:
  *   1. JSON Creating - gera textContent (JSON v1 estruturado) a partir do textOriginal
  *   2. Classifying - roda analyzer (LLM ou heuristica) para gerar classification
@@ -13,18 +15,29 @@
  * corpus/{docId}.processingState.
  *
  * O processamento e' ENCADEADO: 1 doc por vez, 1 etapa por vez.
- * A Cloud Function se chama recursivamente (via Task Queue do Firebase)
- * ate a fila esvaziar.
  *
- * Vantagens:
- *  - Se o user atualizar a pagina, o processamento continua (Firestore persiste)
- *  - Se o user sair, o processamento continua
- *  - Cada etapa tem status visivel (modal no frontend)
- *  - Erro em 1 doc NAO para a fila
+ * Disparador: onDocumentUpdated('admin-config/processing-queue').
+ *   - Toda vez que a fila muda, o trigger e' chamado.
+ *   - Ele faz lock transacional, executa UMA step, libera lock e atualiza lastTickAt.
+ *   - Como a step atualiza o Firestore, o trigger re-dispara para a proxima step.
+ *
+ * Por que NAO recursao in-process:
+ *   - Cloud Functions v2 tem timeout (ate 540s configurado aqui).
+ *   - Recursao dentro de uma unica execucao morre quando o timeout bate.
+ *   - Com trigger pattern, cada step e' uma invocacao Cloud Function independente.
+ *
+ * Garantias:
+ *   - Se o user atualizar a pagina, o processamento continua (Firestore persiste)
+ *   - Se o user sair, o processamento continua
+ *   - Cada etapa tem status visivel (modal no frontend)
+ *   - Erro em 1 doc NAO para a fila (vai para o proximo, registra erro)
+ *   - Lock transacional impede 2 execucoes simultaneas
+ *   - Throttle impede loop infinito do trigger
  */
 import { onCall, HttpsError, onRequest } from 'firebase-functions/v2/https'
-import { logger } from 'firebase-functions'
-import { FieldValue } from 'firebase-admin/firestore'
+import { onDocumentUpdated } from 'firebase-functions/v2/firestore'
+import { logger } from 'firebase-functions/v2'
+import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { getFirestore } from '../services/firestore'
 import { assertAdminMaster } from '../middleware/auth'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
@@ -71,8 +84,6 @@ const STEP_ORDER: ProcessingStep[] = [
 ]
 
 interface ProcessingState {
-  // aceitar tanto FieldValue (serverTimestamp) quanto Date/Timestamp
-
   step: ProcessingStep
   stepLabel: string
   stepStartedAt?: TimeLike
@@ -100,6 +111,8 @@ interface QueueState {
   totalDocs: number
   doneCount: number
   errorCount: number
+  // Lock: true quando uma execucao do trigger ja' esta' processando
+  processing?: boolean
   // Nome do user que iniciou (para auditoria)
   startedBy?: string | null
 }
@@ -107,11 +120,102 @@ interface QueueState {
 const QUEUE_DOC_PATH = 'admin-config/processing-queue'
 const MAX_RETRIES_PER_STEP = 2
 const STEP_TIMEOUT_MS = 120_000  // 2 min por step (anti-hang)
+const TICK_THROTTLE_MS = 800     // anti-loop do trigger (ms)
 
-// ── 1) Start: adiciona docs a fila e dispara primeira tick ───────────
+// ── 1) Trigger: reage a atualizacoes do queue doc ──────────────────────
 
+/**
+ * Trigger reativo: cada vez que o doc admin-config/processing-queue e'
+ * atualizado, verifica se precisa processar e (se sim) executa UMA step.
+ *
+ * Apos executar a step, atualiza o Firestore (set lastTickAt, libera lock,
+ * atualiza currentStep). Esse update re-dispara este trigger, que fara'
+ * a proxima step. E' assim que o encadeamento acontece, sem recursao.
+ */
+export const onProcessingQueueUpdated = onDocumentUpdated(
+  {
+    document: 'admin-config/processing-queue',
+    region: 'southamerica-east1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+    cpu: 1,
+  },
+  async (event) => {
+    const after = event.data?.after.data() as QueueState | undefined
+    if (!after) {
+      logger.debug('onProcessingQueueUpdated: no data')
+      return
+    }
+
+    // SÓ age se a fila estiver em estado "running"
+    if (after.status !== 'running') {
+      logger.debug('onProcessingQueueUpdated: status != running, skip', { status: after.status })
+      return
+    }
+
+    // SÓ age se nao houver execucao em andamento (lock)
+    if (after.processing === true) {
+      logger.debug('onProcessingQueueUpdated: lock ativo, skip')
+      return
+    }
+
+    // THROTTLE: se a ultima tick foi muito recente, ignora (anti-loop)
+    const lastTickMs = toMillis(after.lastTickAt)
+    if (lastTickMs > 0) {
+      const sinceLastTick = Date.now() - lastTickMs
+      if (sinceLastTick < TICK_THROTTLE_MS) {
+        logger.debug('onProcessingQueueUpdated: throttled', { sinceLastTick })
+        return
+      }
+    }
+
+    // Tentar adquirir lock transacionalmente
+    const db = getFirestore()
+    const queueRef = db.doc(QUEUE_DOC_PATH)
+    let acquired = false
+    try {
+      await db.runTransaction(async (tx) => {
+        const fresh = await tx.get(queueRef)
+        if (!fresh.exists) return
+        const freshData = fresh.data() as QueueState
+        if (freshData.status !== 'running') return
+        if (freshData.processing === true) return
+        // verificar throttle tambem dentro da transacao
+        const lastMs = toMillis(freshData.lastTickAt)
+        if (lastMs > 0 && (Date.now() - lastMs) < TICK_THROTTLE_MS) return
+        acquired = true
+        tx.update(queueRef, { processing: true })
+      })
+    } catch (err) {
+      logger.error('onProcessingQueueUpdated.lockError', { err: String(err) })
+      return
+    }
+
+    if (!acquired) {
+      logger.debug('onProcessingQueueUpdated: lock nao adquirido')
+      return
+    }
+
+    // Processar UMA step
+    try {
+      const result = await processSingleStep()
+      logger.info('onProcessingQueueUpdated.tick', result)
+    } catch (err) {
+      logger.error('onProcessingQueueUpdated.error', { err: String(err), stack: (err as Error).stack })
+      // Liberar lock mesmo em erro
+      await queueRef.set({ processing: false, lastTickAt: FieldValue.serverTimestamp() }, { merge: true })
+    }
+  },
+)
+
+// ── 2) Start: adiciona docs a fila (NAO processa diretamente) ──────────
+
+/**
+ * Apenas enfileira os docs e marca status='running'.
+ * O trigger onProcessingQueueUpdated pega a partir daqui.
+ */
 export const adminStartQueue = onCall(
-  { cors: true, enforceAppCheck: false, timeoutSeconds: 540, memory: '1GiB' },
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 60 },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
@@ -171,38 +275,36 @@ export const adminStartQueue = onCall(
     const queueRef = db.doc(QUEUE_DOC_PATH)
     const queueSnap = await queueRef.get()
     const existing = queueSnap.exists ? (queueSnap.data() as QueueState) : null
-    const newQueue: QueueState = {
+    const newQueue: Partial<QueueState> = {
       docIds: Array.from(new Set([...(existing?.docIds || []), ...targetDocIds])),
       currentDocId: existing?.currentDocId || targetDocIds[0],
       currentStep: existing?.currentStep || 'queued',
       status: 'running',
-      startedAt: existing?.startedAt || new Date(),
       finishedAt: null,
-      lastTickAt: new Date(),
+      lastTickAt: new Date(),  // forca o trigger a rodar imediatamente
+      processing: false,
       totalDocs: (existing?.totalDocs || 0) + targetDocIds.length,
       doneCount: existing?.doneCount || 0,
       errorCount: existing?.errorCount || 0,
       startedBy: request.auth.uid,
     }
+    if (!existing?.startedAt) {
+      newQueue.startedAt = new Date()
+    }
     await queueRef.set(newQueue, { merge: true })
 
     logger.info('adminStartQueue.queued', { count: targetDocIds.length, uid: request.auth.uid })
 
-    // Disparar primeira tick (em background, para nao bloquear response)
-    void processNextTick().catch((err) => {
-      logger.error('adminStartQueue.firstTick.failed', { err: String(err) })
-    })
-
     return {
       ok: true,
       queued: targetDocIds.length,
-      totalInQueue: newQueue.docIds.length,
+      totalInQueue: newQueue.docIds!.length,
       message: `${targetDocIds.length} documento(s) adicionado(s) à fila de processamento`,
     }
   },
 )
 
-// ── 2) Get status: retorna fila + estado de cada doc ──────────────────
+// ── 3) Get status: retorna fila + estado de cada doc ──────────────────
 
 export const adminGetQueueStatus = onCall(
   { cors: true, enforceAppCheck: false },
@@ -238,21 +340,6 @@ export const adminGetQueueStatus = onCall(
   },
 )
 
-// ── 3) Public tick (HTTP, sem auth) - chamado recursivamente ───────────
-
-export const adminProcessQueueTick = onRequest(
-  { cors: true, region: 'southamerica-east1', timeoutSeconds: 540, memory: '1GiB' },
-  async (_req, res) => {
-    try {
-      const result = await processNextTick()
-      res.json({ ok: true, ...result })
-    } catch (err) {
-      logger.error('adminProcessQueueTick.error', { err: String(err) })
-      res.status(500).json({ ok: false, error: String((err as Error).message) })
-    }
-  },
-)
-
 // ── 4) Limpar fila ─────────────────────────────────────────────────────
 
 export const adminClearQueue = onCall(
@@ -274,18 +361,48 @@ export const adminClearQueue = onCall(
   },
 )
 
-// ── Core: processNextTick ─────────────────────────────────────────────
+// ── 5) Manual tick (HTTP, sem auth) - fallback de recuperacao ──────────
 
 /**
- * Processa o PROXIMO STEP do doc atual.
- * Se step='completed', vai para o proximo doc da fila.
- * Se fila vazia, marca status='completed'.
- * Se erro, marca error no doc e continua (ou para, dependendo da config).
- *
- * IMPORTANTE: esta funcao NAO retorna ate completar o step.
- * O resultado dela e' usado para decidir se chama novamente.
+ * FALLBACK: chama processSingleStep manualmente. Usado quando o trigger
+ * nao esta' disparando (ex: em emergencias ou para retomar fila travada).
  */
-async function processNextTick(): Promise<{
+export const adminProcessQueueTick = onRequest(
+  { cors: true, region: 'southamerica-east1', timeoutSeconds: 540, memory: '1GiB' },
+  async (_req, res) => {
+    try {
+      const result = await processSingleStep()
+      res.json({ ok: true, ...result })
+    } catch (err) {
+      logger.error('adminProcessQueueTick.error', { err: String(err) })
+      res.status(500).json({ ok: false, error: String((err as Error).message) })
+    }
+  },
+)
+
+// ── 6) Public endpoint para o user forcar tick (onCall) ───────────────
+
+export const adminForceQueueTick = onCall(
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 540, memory: '1GiB' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    await assertAdminMaster(request.auth.uid)
+
+    const result = await processSingleStep()
+    return { ok: true, ...result }
+  },
+)
+
+// ── Core: processSingleStep (UMA step, sem recursao) ──────────────────
+
+/**
+ * Processa UMA unica step do doc atual, depois RETORNA.
+ * Quem chamou (trigger ou admin) decide se chama de novo.
+ *
+ * IMPORTANTE: esta funcao NAO chama a si mesma. O encadeamento acontece
+ * via trigger onDocumentUpdated, que re-dispara cada vez que a fila muda.
+ */
+async function processSingleStep(): Promise<{
   processed: boolean
   currentDocId: string | null
   currentStep: ProcessingStep | null
@@ -293,166 +410,229 @@ async function processNextTick(): Promise<{
 }> {
   const db = getFirestore()
   const queueRef = db.doc(QUEUE_DOC_PATH)
-  const queueSnap = await queueRef.get()
-  if (!queueSnap.exists) {
-    return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'idle' }
-  }
-  const queue = queueSnap.data() as QueueState
 
-  // Se ja' terminou, nao fazer nada
-  if (queue.status === 'completed' || queue.status === 'paused') {
-    return { processed: false, currentDocId: queue.currentDocId, currentStep: queue.currentStep, queueStatus: queue.status }
-  }
-
-  // Pegar doc atual
-  let currentDocId = queue.currentDocId
-  let currentDocRef = currentDocId ? db.doc(`corpus/${currentDocId}`) : null
-  let currentDocData: Record<string, unknown> | null = null
-
-  // Se nao tem doc atual, pegar o proximo da fila
-  if (!currentDocId || !currentDocRef) {
-    const nextDocId = queue.docIds.find((id) => id !== queue.currentDocId) || queue.docIds[0]
-    if (!nextDocId) {
-      // Fila vazia
-      await queueRef.set({ status: 'completed', finishedAt: FieldValue.serverTimestamp() }, { merge: true })
-      return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'completed' }
+  try {
+    const queueSnap = await queueRef.get()
+    if (!queueSnap.exists) {
+      await releaseLock(queueRef)
+      return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'idle' }
     }
-    await queueRef.set({ currentDocId: nextDocId }, { merge: true })
-    currentDocId = nextDocId
-    currentDocRef = db.doc(`corpus/${currentDocId}`)
-  }
+    const queue = queueSnap.data() as QueueState
 
-  // Carregar doc
-  const docSnap = await currentDocRef.get()
-  if (!docSnap.exists) {
-    // Doc nao existe mais - remover da fila e ir pro proximo
-    const remainingDocIds = queue.docIds.filter((id) => id !== currentDocId)
-    await queueRef.set(
-      { docIds: remainingDocIds, currentDocId: null, errorCount: (queue.errorCount || 0) + 1 },
-      { merge: true },
-    )
-    if (remainingDocIds.length > 0) {
-      return processNextTick()
+    // Se ja' terminou ou pausado, libera lock e sai
+    if (queue.status === 'completed' || queue.status === 'paused') {
+      await releaseLock(queueRef)
+      return {
+        processed: false,
+        currentDocId: queue.currentDocId,
+        currentStep: queue.currentStep,
+        queueStatus: queue.status,
+      }
     }
-    await queueRef.set({ status: 'completed', finishedAt: FieldValue.serverTimestamp() }, { merge: true })
-    return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'completed' }
-  }
 
-  currentDocData = docSnap.data() || {}
-  const processingState: ProcessingState = (currentDocData.processingState as ProcessingState | undefined) || {
-    step: 'queued' as ProcessingStep,
-    stepLabel: STEP_LABELS.queued,
-  }
-  const step: ProcessingStep = processingState.step || 'queued'
+    // Pegar doc atual
+    let currentDocId = queue.currentDocId
+    let currentDocRef = currentDocId ? db.doc(`corpus/${currentDocId}`) : null
 
-  // Se step ja' e' completed, ir pro proximo doc
-  if (step === 'completed') {
-    return advanceToNextDoc(queue, currentDocId!)
-  }
+    // Se nao tem doc atual, pegar o proximo da fila
+    if (!currentDocId || !currentDocRef) {
+      const nextDocId = queue.docIds.find((id) => id !== queue.currentDocId) || queue.docIds[0]
+      if (!nextDocId) {
+        // Fila vazia
+        await queueRef.set(
+          { status: 'completed', finishedAt: FieldValue.serverTimestamp() },
+          { merge: true },
+        )
+        await releaseLock(queueRef)
+        return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'completed' }
+      }
+      await queueRef.set({ currentDocId: nextDocId }, { merge: true })
+      currentDocId = nextDocId
+      currentDocRef = db.doc(`corpus/${currentDocId}`)
+    }
 
-  // Se step e' 'error', ir pro proximo doc (ou tentar retry se retryCount < MAX)
-  if (step === 'error') {
-    const retryCount = processingState.retryCount || 0
-    if (retryCount < MAX_RETRIES_PER_STEP && processingState.failedStep) {
-      // Tentar de novo a partir do failedStep
-      logger.info('processNextTick.retry', { docId: currentDocId, step: processingState.failedStep, retryCount })
-      await currentDocRef.set(
-        {
-          processingState: {
-            step: processingState.failedStep,
-            stepLabel: STEP_LABELS[processingState.failedStep],
-            stepStartedAt: FieldValue.serverTimestamp(),
-            error: null,
-            failedStep: null,
-            retryCount: retryCount + 1,
-          },
-        },
+    // Carregar doc
+    const docSnap = await currentDocRef.get()
+    if (!docSnap.exists) {
+      // Doc nao existe mais - remover da fila
+      const remainingDocIds = queue.docIds.filter((id) => id !== currentDocId)
+      await queueRef.set(
+        { docIds: remainingDocIds, currentDocId: null, errorCount: (queue.errorCount || 0) + 1 },
         { merge: true },
       )
-      // Processar recursivamente
-      return processNextTick()
+      await releaseLock(queueRef)
+      // SEM recursao. O trigger re-dispara para pegar o proximo.
+      if (remainingDocIds.length === 0) {
+        await queueRef.set(
+          { status: 'completed', finishedAt: FieldValue.serverTimestamp() },
+          { merge: true },
+        )
+        return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'completed' }
+      }
+      return { processed: true, currentDocId: null, currentStep: null, queueStatus: 'running' }
     }
-    // Desiste deste doc, ir pro proximo
-    logger.warn('processNextTick.skippedAfterError', { docId: currentDocId, error: processingState.error })
-    return advanceToNextDoc(queue, currentDocId!, true)
-  }
 
-  // Executar step
-  try {
-    await executeStep(currentDocId!, currentDocRef!, currentDocData, step)
-    // Step OK. Avancar para o proximo.
-    const nextStep = getNextStep(step)
-    if (nextStep === 'completed') {
-      // Doc completo!
+    const docData = docSnap.data() || {}
+    const processingState: ProcessingState =
+      (docData.processingState as ProcessingState | undefined) || {
+        step: 'queued' as ProcessingStep,
+        stepLabel: STEP_LABELS.queued,
+      }
+    const step: ProcessingStep = processingState.step || 'queued'
+
+    // Se step ja' e' completed, ir pro proximo doc
+    if (step === 'completed') {
+      return await advanceToNextDoc(queue, currentDocId!)
+    }
+
+    // Se step e' 'error', tentar retry ou ir pro proximo
+    if (step === 'error') {
+      const retryCount = processingState.retryCount || 0
+      if (retryCount < MAX_RETRIES_PER_STEP && processingState.failedStep) {
+        // Tentar de novo a partir do failedStep
+        logger.info('processSingleStep.retry', {
+          docId: currentDocId,
+          step: processingState.failedStep,
+          retryCount,
+        })
+        await currentDocRef.set(
+          {
+            processingState: {
+              step: processingState.failedStep,
+              stepLabel: STEP_LABELS[processingState.failedStep],
+              stepStartedAt: FieldValue.serverTimestamp(),
+              error: null,
+              failedStep: null,
+              retryCount: retryCount + 1,
+            },
+          },
+          { merge: true },
+        )
+        await releaseLock(queueRef)
+        return {
+          processed: true,
+          currentDocId: currentDocId!,
+          currentStep: processingState.failedStep,
+          queueStatus: 'running',
+        }
+      }
+      // Desiste deste doc, ir pro proximo
+      logger.warn('processSingleStep.skippedAfterError', {
+        docId: currentDocId,
+        error: processingState.error,
+      })
+      return await advanceToNextDoc(queue, currentDocId!, true)
+    }
+
+    // Executar step
+    try {
+      await executeStep(currentDocId!, currentDocRef!, docData, step)
+      // Step OK. Avancar para o proximo.
+      const nextStep = getNextStep(step)
+      if (nextStep === 'completed') {
+        // Doc completo!
+        await currentDocRef.set(
+          {
+            processingState: {
+              step: 'completed',
+              stepLabel: STEP_LABELS.completed,
+              completedAt: FieldValue.serverTimestamp(),
+              error: null,
+            },
+            status: 'analisado',
+            analyzedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        )
+        await queueRef.set(
+          {
+            doneCount: (queue.doneCount || 0) + 1,
+            lastTickAt: FieldValue.serverTimestamp(),
+            currentStep: 'completed',
+          },
+          { merge: true },
+        )
+        logger.info('processSingleStep.docCompleted', { docId: currentDocId })
+        // Ir para o proximo doc (sem recursao)
+        return await advanceToNextDoc(queue, currentDocId!)
+      } else {
+        // Proximo step do mesmo doc
+        await currentDocRef.set(
+          {
+            processingState: {
+              step: nextStep,
+              stepLabel: STEP_LABELS[nextStep],
+              stepStartedAt: FieldValue.serverTimestamp(),
+              error: null,
+            },
+          },
+          { merge: true },
+        )
+        await queueRef.set(
+          { lastTickAt: FieldValue.serverTimestamp(), currentStep: nextStep },
+          { merge: true },
+        )
+        // SEM recursao. O trigger re-dispara para a proxima step.
+        await releaseLock(queueRef)
+        return { processed: true, currentDocId: currentDocId!, currentStep: nextStep, queueStatus: 'running' }
+      }
+    } catch (err) {
+      const errMsg = (err as Error).message
+      logger.error('processSingleStep.stepError', { docId: currentDocId, step, err: errMsg })
       await currentDocRef.set(
         {
           processingState: {
-            step: 'completed',
-            stepLabel: STEP_LABELS.completed,
-            completedAt: FieldValue.serverTimestamp(),
-            error: null,
+            step: 'error',
+            stepLabel: STEP_LABELS.error,
+            error: errMsg,
+            failedStep: step,
+            retryCount: processingState.retryCount || 0,
           },
-          status: 'analisado',
-          analyzedAt: FieldValue.serverTimestamp(),
+          status: 'erro_analise',
+          analysisError: `Step '${step}' failed: ${errMsg}`,
         },
         { merge: true },
       )
       await queueRef.set(
-        { doneCount: (queue.doneCount || 0) + 1, lastTickAt: FieldValue.serverTimestamp() },
-        { merge: true },
-      )
-      logger.info('processNextTick.docCompleted', { docId: currentDocId })
-      return advanceToNextDoc(queue, currentDocId!)
-    } else {
-      // Proximo step do mesmo doc
-      await currentDocRef.set(
         {
-          processingState: {
-            step: nextStep,
-            stepLabel: STEP_LABELS[nextStep],
-            stepStartedAt: FieldValue.serverTimestamp(),
-            error: null,
-          },
+          errorCount: (queue.errorCount || 0) + 1,
+          lastTickAt: FieldValue.serverTimestamp(),
+          currentStep: 'error',
         },
         { merge: true },
       )
-      // Processar proximo step IMEDIATAMENTE (encadeado)
-      return processNextTick()
+      // Ir para o proximo doc (sem recursao)
+      return await advanceToNextDoc(queue, currentDocId!, true)
     }
   } catch (err) {
-    const errMsg = (err as Error).message
-    logger.error('processNextTick.stepError', { docId: currentDocId, step, err: errMsg })
-    await currentDocRef.set(
-      {
-        processingState: {
-          step: 'error',
-          stepLabel: STEP_LABELS.error,
-          error: errMsg,
-          failedStep: step,
-          retryCount: processingState.retryCount || 0,
-        },
-        status: 'erro_analise',
-        analysisError: `Step '${step}' failed: ${errMsg}`,
-      },
-      { merge: true },
-    )
+    logger.error('processSingleStep.fatal', { err: String((err as Error).message) })
+    await releaseLock(queueRef)
+    return { processed: false, currentDocId: null, currentStep: null, queueStatus: 'error' }
+  }
+}
+
+/**
+ * Libera o lock e atualiza lastTickAt. SEMPRE chamado no final de cada tick.
+ */
+async function releaseLock(queueRef: FirebaseFirestore.DocumentReference): Promise<void> {
+  try {
     await queueRef.set(
-      { errorCount: (queue.errorCount || 0) + 1, lastTickAt: FieldValue.serverTimestamp() },
+      { processing: false, lastTickAt: FieldValue.serverTimestamp() },
       { merge: true },
     )
-    // Ir para o proximo doc (ou tentar retry no proximo tick)
-    return advanceToNextDoc(queue, currentDocId!, true)
+  } catch (err) {
+    logger.error('releaseLock.error', { err: String(err) })
   }
 }
 
 /**
  * Avanca para o proximo doc da fila.
  * Se nao houver mais, marca fila como 'completed'.
+ * SEM recursao: o trigger re-dispara para processar a primeira step do proximo doc.
  */
 async function advanceToNextDoc(
   queue: QueueState,
   currentDocId: string,
-  // hadError nao usado (so' para log)
   _hadError = false,
 ): Promise<{
   processed: boolean
@@ -468,9 +648,16 @@ async function advanceToNextDoc(
 
   if (!nextDocId) {
     await queueRef.set(
-      { docIds: [], currentDocId: null, currentStep: null, status: 'completed', finishedAt: FieldValue.serverTimestamp() },
+      {
+        docIds: [],
+        currentDocId: null,
+        currentStep: null,
+        status: 'completed',
+        finishedAt: FieldValue.serverTimestamp(),
+      },
       { merge: true },
     )
+    await releaseLock(queueRef)
     return { processed: true, currentDocId: null, currentStep: null, queueStatus: 'completed' }
   }
 
@@ -490,11 +677,31 @@ async function advanceToNextDoc(
     { merge: true },
   )
   await queueRef.set(
-    { docIds: remainingDocIds, currentDocId: nextDocId, currentStep: 'queued' as ProcessingStep, lastTickAt: FieldValue.serverTimestamp() },
+    {
+      docIds: remainingDocIds,
+      currentDocId: nextDocId,
+      currentStep: 'queued' as ProcessingStep,
+      lastTickAt: FieldValue.serverTimestamp(),
+    },
     { merge: true },
   )
-  // Processar proximo
-  return processNextTick()
+  // SEM recursao. O trigger re-dispara para a primeira step do proximo doc.
+  await releaseLock(queueRef)
+  return { processed: true, currentDocId: nextDocId, currentStep: 'queued', queueStatus: 'running' }
+}
+
+/**
+ * Converte TimeLike para millisegundos, ou 0 se invalido.
+ */
+function toMillis(t: TimeLike | null | undefined): number {
+  if (!t) return 0
+  if (t instanceof Timestamp) return t.toMillis()
+  if (t instanceof Date) return t.getTime()
+  if (typeof t === 'string') {
+    const ms = new Date(t).getTime()
+    return Number.isFinite(ms) ? ms : 0
+  }
+  return 0
 }
 
 /**
@@ -650,16 +857,3 @@ function getNextStep(currentStep: ProcessingStep): ProcessingStep {
   }
   return STEP_ORDER[idx + 1]
 }
-
-// ── Public endpoint para o user forcar tick (se quiser) ──────────────
-
-export const adminForceQueueTick = onCall(
-  { cors: true, enforceAppCheck: false, timeoutSeconds: 540, memory: '1GiB' },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
-    await assertAdminMaster(request.auth.uid)
-
-    const result = await processNextTick()
-    return { ok: true, ...result }
-  },
-)
