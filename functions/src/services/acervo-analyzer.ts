@@ -554,7 +554,7 @@ export function getHeuristicAnalysis(fileName: string, text: string): { classifi
   const pessoasSet = new Set<string>()
   const cargoPatterns: Array<[RegExp, string]> = [
     [/prefeito(?:sa)?/i, 'Prefeito(a)'],
-    [/vice[\-\s]?prefeito/i, 'Vice-Prefeito(a)'],
+    [/vice[-s]?prefeito/i, 'Vice-Prefeito(a)'],
     [/secret[aá]rio(?:\s+municipal)?(?:\s+de\s+\w+)?/i, 'Secretário(a) Municipal'],
     [/veread(or|ora)/i, 'Vereador(a)'],
     [/procurador(?:\s+municipal)?/i, 'Procurador(a)'],
@@ -825,7 +825,7 @@ function normalizeKeyPoints(raw: unknown): KeyPoints {
     }
   }
   const pessoasEnvolvidas: PersonEnvolvida[] = Array.isArray(obj.pessoas_envolvidas)
-    ? (obj.pessoas_envolvidas.slice(0, 20).map((x: any) => {
+    ? (obj.pessoas_envolvidas.slice(0, 20).map((x: unknown) => {
         const r = asRecord(x)
         if (!r) return null
         const papel = r.papel as PersonEnvolvida['papel']
@@ -838,7 +838,7 @@ function normalizeKeyPoints(raw: unknown): KeyPoints {
       }).filter((x): x is PersonEnvolvida => x !== null))
     : []
   const relacionamentos: Relacionamento[] = Array.isArray(obj.relacionamentos)
-    ? (obj.relacionamentos.slice(0, 20).map((x: any) => {
+    ? (obj.relacionamentos.slice(0, 20).map((x: unknown) => {
         const r = asRecord(x)
         if (!r) return null
         const tipo = r.tipo as Relacionamento['tipo']
@@ -851,7 +851,7 @@ function normalizeKeyPoints(raw: unknown): KeyPoints {
       }).filter((x): x is Relacionamento => x !== null))
     : []
   const citacoesJuridicas: CitacaoJuridica[] = Array.isArray(obj.citacoes_juridicas)
-    ? (obj.citacoes_juridicas.slice(0, 15).map((x: any) => {
+    ? (obj.citacoes_juridicas.slice(0, 15).map((x: unknown) => {
         const r = asRecord(x)
         if (!r) return null
         const tipo = r.tipo as CitacaoJuridica['tipo']
