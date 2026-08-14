@@ -72,14 +72,31 @@ Causas reais dos problemas relatados:
 
 ---
 
-## Fase 2 — Config de LLM/Agentes por usuário 🔜
+## Fase 2 — Config de LLM/Agentes por usuário ✅ (esta entrega)
 
-- 🔜 Estender o modelo por-agente para o escopo do usuário
-  (`users/{uid}.agentsConfig`), com a mesma UI (reaproveitar `AgentsConfig`).
-- 🔜 Resolução em cascata: **usuário (por agente) → global (por agente) → global** →
-  env. Regra: quando o admin **não** força um modelo global, cada usuário pode
-  configurar seus provedores/modelos por agente.
-- 🔜 Página `SettingsPage` do usuário com as mesmas seções (somente seus agentes).
+**Backend**
+
+- ✅ `services/agents-config.ts`: `USER_AGENT_IDS` (`orchestrator`, `web-researcher`
+  — o acervo é só do admin), `normalizeUserAgentModels()` e
+  `resolveUserAgentLLMConfig()` (modelo do usuário custom → base do usuário).
+- ✅ `handlers/agents-config.ts`: `getUserAgentsConfig` / `setUserAgentsConfig`
+  (autenticados, escopo do usuário; apiKey mascarado + preservado). Persistidos no
+  campo `users/{uid}.agentsConfig`.
+- ✅ **Bug de resolução do chat corrigido** (`chat-v2`): a config global era lida
+  como doc **plano**, mas está gravada com **envelope** `{ data }` → `provider`
+  vinha `undefined` e o chat caía no stub. Agora desembrulha (`unwrapGlobalLLM`) e lê
+  a config do usuário do **campo** `users/{uid}.llmConfig` (antes lia um subdoc
+  inexistente `users/{uid}/llmConfig`).
+- ✅ Cascata implementada: **admin força global** → modelo do orquestrador (admin)
+  custom → global; **senão (delegado ao usuário)** → modelo por-agente do usuário →
+  config pessoal → env.
+
+**Frontend**
+
+- ✅ `components/AgentWidget/settings/UserAgentsConfig.tsx`: modelo dedicado por
+  agente do usuário (só aparece quando o admin não força global).
+- ✅ Integrado em `SettingsPage` como seção "Modelos por agente (opcional)".
+- ✅ Testes backend: 137 verdes.
 
 ## Fase 3 — Qualidade do acervo (ementa / pontos / ingestão) 🔜
 

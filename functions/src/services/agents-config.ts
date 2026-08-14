@@ -22,6 +22,12 @@ export type AgentId = 'orchestrator' | 'acervo' | 'web-researcher'
 
 export const AGENT_IDS: AgentId[] = ['orchestrator', 'acervo', 'web-researcher']
 
+/**
+ * Agentes configuráveis POR USUÁRIO. O 'acervo' roda apenas no upload (admin),
+ * então não faz parte do escopo do usuário.
+ */
+export const USER_AGENT_IDS: AgentId[] = ['orchestrator', 'web-researcher']
+
 /** Skill/comando que orienta um agente. */
 export interface AgentSkill {
   /** id estável (gerado no front ou server) */
@@ -280,6 +286,49 @@ export function resolveAgentLLMConfig(
     logger.warn('resolveAgentLLMConfig: modo custom incompleto, usando global', { agentId: agent.id })
   }
   return global
+}
+
+// ── Config por usuário (apenas modelos, sem skills) ─────────────────────
+
+/** Mapa de modelos por-agente definidos por um usuário. */
+export type UserAgentModels = Partial<Record<AgentId, AgentModelConfig>>
+
+/**
+ * Normaliza a config de agentes de um usuário (só os modelos).
+ * Aceita `{ agents: {...} }` ou o mapa direto `{ orchestrator: {...} }`.
+ */
+export function normalizeUserAgentModels(raw: unknown): UserAgentModels {
+  const source = (typeof raw === 'object' && raw !== null && 'agents' in (raw as Record<string, unknown>))
+    ? (raw as { agents?: unknown }).agents
+    : raw
+  const rec = (typeof source === 'object' && source !== null) ? source as Record<string, unknown> : {}
+  const out: UserAgentModels = {}
+  for (const id of AGENT_IDS) {
+    if (rec[id]) out[id] = normalizeModel(rec[id])
+  }
+  return out
+}
+
+/**
+ * Resolve o LLM efetivo de um agente para um usuário:
+ *  - modelo dedicado do usuário (custom completo) → usa o dele
+ *  - caso contrário → cai no `base` (config base do usuário / fallback)
+ */
+export function resolveUserAgentLLMConfig(
+  userModel: AgentModelConfig | undefined,
+  base: LLMConfigLike | null,
+): LLMConfigLike | null {
+  if (userModel && userModel.mode === 'custom' && userModel.provider && userModel.model && userModel.apiKey) {
+    return {
+      provider: userModel.provider,
+      model: userModel.model,
+      apiKey: userModel.apiKey,
+      baseUrl: userModel.baseUrl,
+      temperature: userModel.temperature,
+      maxTokens: userModel.maxTokens,
+    }
+  }
+  return base
 }
 
 /**

@@ -10,14 +10,18 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
 import { assertAdminMaster } from '../middleware/auth'
 import { saveConfigDoc } from '../services/config-store'
+import { getFirestore, FieldValue } from '../services/firestore'
 import {
   loadAgentsConfig,
   normalizeAgentsConfig,
+  normalizeUserAgentModels,
   defaultAgentsConfig,
   AGENT_IDS,
+  USER_AGENT_IDS,
   AGENTS_CONFIG_PATH,
   type AgentsConfig,
   type AgentConfig,
+  type AgentModelConfig,
   type AgentId,
 } from '../services/agents-config'
 
@@ -99,5 +103,61 @@ export const adminSaveAgentsConfig = onCall(
       })),
     })
     return toClientSafe(incoming)
+  },
+)
+
+// ── USER: modelos por-agente (só quando o admin NÃO força um LLM global) ──
+
+/** Versão client-safe de um modelo (sem apiKey cru). */
+function modelToClientSafe(m: AgentModelConfig): AgentModelConfig {
+  const rawKey = m.apiKey ?? ''
+  const out: AgentModelConfig = { ...m, apiKey: '' }
+  ;(out as unknown as Record<string, unknown>).hasApiKey = !!rawKey
+  ;(out as unknown as Record<string, unknown>).apiKeyMasked = maskKey(rawKey)
+  return out
+}
+
+export const getUserAgentsConfig = onCall(
+  { cors: true, enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    const snap = await getFirestore().doc(`users/${request.auth.uid}`).get()
+    const raw = snap.exists ? (snap.data() as Record<string, unknown>)?.agentsConfig : null
+    const models = normalizeUserAgentModels(raw)
+    const agents: Record<string, AgentModelConfig> = {}
+    for (const id of USER_AGENT_IDS) {
+      agents[id] = modelToClientSafe(models[id] ?? { mode: 'global' })
+    }
+    return { agents }
+  },
+)
+
+export const setUserAgentsConfig = onCall(
+  { cors: true, enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
+    const uid = request.auth.uid
+    const incoming = normalizeUserAgentModels(request.data)
+    const db = getFirestore()
+    const snap = await db.doc(`users/${uid}`).get()
+    const existing = normalizeUserAgentModels(snap.exists ? (snap.data() as Record<string, unknown>)?.agentsConfig : null)
+
+    const toStore: Record<string, AgentModelConfig> = {}
+    const agents: Record<string, AgentModelConfig> = {}
+    for (const id of USER_AGENT_IDS) {
+      const m = incoming[id] ?? { mode: 'global' }
+      if (isMasked(m.apiKey)) m.apiKey = existing[id]?.apiKey ?? ''
+      toStore[id] = m
+      agents[id] = modelToClientSafe(m)
+    }
+    await db.doc(`users/${uid}`).set(
+      { agentsConfig: toStore, agentsConfigUpdatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    )
+    logger.info('user-agents-config.saved', {
+      uid,
+      agents: USER_AGENT_IDS.map((id) => ({ id, mode: toStore[id].mode })),
+    })
+    return { agents }
   },
 )

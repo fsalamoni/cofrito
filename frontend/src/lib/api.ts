@@ -81,6 +81,10 @@ export const api = {
   // Admin: configuracao unificada dos agentes (modelo por-agente + skills)
   adminGetAgentsConfig: () => httpsCallable<void, any>(functions, 'adminGetAgentsConfig')(),
   adminSaveAgentsConfig: (config: any) => httpsCallable<any, any>(functions, 'adminSaveAgentsConfig')(config),
+
+  // Usuario: modelos por-agente (quando o admin nao forca LLM global)
+  getUserAgentsConfig: () => httpsCallable<void, any>(functions, 'getUserAgentsConfig')(),
+  setUserAgentsConfig: (config: any) => httpsCallable<any, any>(functions, 'setUserAgentsConfig')(config),
   adminReanalyzeDocument: (docId: string) =>
     httpsCallable<string, { ok: boolean; message: string }>(functions, 'adminReanalyzeDocument')(docId),
   adminReanalyzeBatch: (payload: { docIds?: string[]; selectAll?: boolean }) =>

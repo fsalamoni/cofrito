@@ -23,6 +23,18 @@ import { getUserProfile } from '../services/profile'
 import { logAnalytics } from '../services/analytics'
 import { filterPII } from '../services/anonymizer'
 
+/**
+ * Desembrulha o doc admin-config/llm (gravado com envelope { data: {...} }),
+ * aceitando também o formato legado (campos na raiz). Retorna null se inválido.
+ */
+function unwrapGlobalLLM(raw: unknown): LLMConfigLike | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, any>
+  const d = r.data && typeof r.data === 'object' ? r.data : r
+  if (d && d.provider && d.model) return d as LLMConfigLike
+  return null
+}
+
 const ChatRequestSchema = z.object({
   conversationId: z.string().nullable().optional(),
   message: z.string().min(1).max(2000),
@@ -111,10 +123,19 @@ export const chatV2 = onCall(
 
       // 6. Resolver LLM config
       const db = getFirestore()
-      const globalSnap = await db.doc('admin-config/llm').get()
-      const userSnap = await db.doc(`users/${userId}/llmConfig`).get()
-      const globalCfg = globalSnap.exists ? (globalSnap.data() as LLMConfigLike) : null
-      const userCfg = userSnap.exists ? (userSnap.data() as LLMConfigLike) : null
+      const [globalSnap, userDocSnap] = await Promise.all([
+        db.doc('admin-config/llm').get(),
+        db.doc(`users/${userId}`).get(),
+      ])
+      // admin-config/llm é gravado com envelope { data: {...} }; desembrulha + valida.
+      const globalCfg = unwrapGlobalLLM(globalSnap.exists ? globalSnap.data() : null)
+      // Config pessoal do usuário fica no CAMPO `llmConfig` do doc users/{uid}.
+      const userDocData = userDocSnap.exists ? (userDocSnap.data() as Record<string, any>) : null
+      const userCfgRaw = userDocData?.llmConfig
+      const userCfg: LLMConfigLike | null =
+        userCfgRaw && userCfgRaw.provider && userCfgRaw.model ? (userCfgRaw as LLMConfigLike) : null
+      const userAgentsRaw = userDocData?.agentsConfig ?? null
+      const adminForcesGlobal = !!globalCfg
       const effectiveConfig: LLMConfigLike | null = globalCfg || userCfg
 
       // OpenRouter é o PROVIDOR PRINCIPAL E DE FALLBACK da plataforma.
@@ -160,17 +181,33 @@ export const chatV2 = onCall(
 
       // 7b. Aplicar config do agente orquestrador (modelo dedicado + skills)
       try {
-        const { loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt } = await import('../services/agents-config')
+        const {
+          loadAgentsConfig, resolveAgentLLMConfig, buildAgentSkillsPrompt,
+          normalizeUserAgentModels, resolveUserAgentLLMConfig,
+        } = await import('../services/agents-config')
         const agentsConfig = await loadAgentsConfig()
         const orchestrator = agentsConfig.agents.orchestrator
+        // Skills do orquestrador são sempre definidas pelo admin (global).
         const skillsPrompt = buildAgentSkillsPrompt(orchestrator)
         if (skillsPrompt) systemPrompt = `${systemPrompt}\n\n${skillsPrompt}`
-        // Modelo dedicado do orquestrador tem prioridade sobre o global, se completo.
-        const resolved = resolveAgentLLMConfig(orchestrator, configToUse)
-        if (resolved && orchestrator.model.mode === 'custom') {
-          configToUse = resolved
-          provider = resolved.provider
-          model = resolved.model
+
+        if (adminForcesGlobal) {
+          // Admin define o modelo: dedicado do orquestrador (admin) > global.
+          const resolved = resolveAgentLLMConfig(orchestrator, configToUse)
+          if (resolved && orchestrator.model.mode === 'custom') {
+            configToUse = resolved
+            provider = resolved.provider
+            model = resolved.model
+          }
+        } else {
+          // Delegado ao usuário: modelo por-agente do próprio usuário > sua config base.
+          const userAgents = normalizeUserAgentModels(userAgentsRaw)
+          const resolved = resolveUserAgentLLMConfig(userAgents.orchestrator, configToUse)
+          if (resolved && userAgents.orchestrator?.mode === 'custom') {
+            configToUse = resolved
+            provider = resolved.provider
+            model = resolved.model
+          }
         }
       } catch (agentsErr) {
         logger.warn('chat-v2: falha ao aplicar agents-config do orquestrador', { err: (agentsErr as Error)?.message })

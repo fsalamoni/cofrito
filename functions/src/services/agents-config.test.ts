@@ -4,6 +4,8 @@ import {
   normalizeAgentsConfig,
   resolveAgentLLMConfig,
   buildAgentSkillsPrompt,
+  normalizeUserAgentModels,
+  resolveUserAgentLLMConfig,
   AGENT_IDS,
   type AgentConfig,
 } from './agents-config'
@@ -69,6 +71,25 @@ describe('agents-config', () => {
       model: { mode: 'custom', provider: 'anthropic', model: '', apiKey: '' },
     }
     expect(resolveAgentLLMConfig(agent, GLOBAL)).toEqual(GLOBAL)
+  })
+
+  it('normalizeUserAgentModels lê mapa direto e o formato { agents }', () => {
+    const a = normalizeUserAgentModels({ orchestrator: { mode: 'custom', provider: 'openai', model: 'gpt-4o', apiKey: 'sk' } })
+    expect(a.orchestrator?.mode).toBe('custom')
+    expect(a.orchestrator?.apiKey).toBe('sk')
+    const b = normalizeUserAgentModels({ agents: { 'web-researcher': { mode: 'global' } } })
+    expect(b['web-researcher']?.mode).toBe('global')
+    expect(b.orchestrator).toBeUndefined()
+  })
+
+  it('resolveUserAgentLLMConfig usa modelo do usuário quando custom completo, senão base', () => {
+    const base: LLMConfigLike = { provider: 'google', model: 'gemini', apiKey: 'g' }
+    const withCustom = resolveUserAgentLLMConfig(
+      { mode: 'custom', provider: 'openai', model: 'gpt-4o', apiKey: 'sk' }, base,
+    )
+    expect(withCustom?.provider).toBe('openai')
+    expect(resolveUserAgentLLMConfig({ mode: 'global' }, base)).toEqual(base)
+    expect(resolveUserAgentLLMConfig({ mode: 'custom', provider: 'openai', model: '', apiKey: '' }, base)).toEqual(base)
   })
 
   it('buildAgentSkillsPrompt inclui só skills ativas com prompt', () => {

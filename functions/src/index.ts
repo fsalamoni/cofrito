@@ -102,6 +102,8 @@ export {
 export {
   adminGetAgentsConfig,
   adminSaveAgentsConfig,
+  getUserAgentsConfig,
+  setUserAgentsConfig,
 } from './handlers/agents-config'
 
 // Admin: source paths
