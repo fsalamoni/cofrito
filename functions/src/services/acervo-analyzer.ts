@@ -172,7 +172,8 @@ export interface AcervoAnalysisResult {
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const MAX_SOURCE_CHARS = 14000  // aumentado: agora envia 1 vez para 3 skills
+const MAX_SOURCE_CHARS = 20000  // cobertura maior p/ análise exaustiva (1 envio p/ 3 skills)
+const MAX_KEY_POINTS = 15       // pontos relevantes: mapeamento exaustivo do caso
 const NATUREZA_VALUES: Natureza[] = ['consultivo', 'executorio', 'transacional', 'negocial', 'doutrinario', 'decisorio']
 
 // ── Prompt do agente unificado (3 skills em 1 chamada) ─────────────────
@@ -226,11 +227,13 @@ const UNIFIED_SYSTEM_PROMPT = [
   '- autor: orgao/pessoa que produziu',
   '- destinatario: a quem se dirige',
   '- assunto: tema principal em 1-2 palavras (PARA BUSCA RAPIDA)',
-  '- sintese: 1-3 frases resumindo o caso concreto',
-  '- fundamentacao: FUNDAMENTOS JURIDICOS (tese central, ratio, argumentos, dispositivos citados) - 2-5 frases',
+  '- sintese: 2-4 frases resumindo o caso concreto (assunto principal + assuntos complementares + partes/autoridades + vinculos relevantes)',
+  '- fundamentacao: FUNDAMENTOS JURIDICOS de forma substantiva. Registre COMO o redator tratou cada ponto relevante',
+  '  e QUAIS fundamentos (tese central, ratio decidendi, principios, dispositivos legais, sumulas, precedentes) foram',
+  '  determinantes para a tomada de decisao/conclusao. 3-6 frases.',
   '- areas: areas do direito (mesmo de classification)',
   '- topicos: referencias especificas (SV 13 STF, Tema 1018 RG, Art. 37 CF, etc)',
-  '- conclusao: 1-2 frases com a conclusao/decisao final',
+  '- conclusao: 1-2 frases com a conclusao/decisao final e o porque (fundamento decisivo)',
   '- keywords: 5-25 palavras-chave para busca, incluindo sinonimos',
   '- materias: 3-10 tags mais amplas (para busca semantica no chat) - ex: "nepotismo", "improbidade", "licitacao"',
   '',
@@ -238,7 +241,15 @@ const UNIFIED_SYSTEM_PROMPT = [
   'SKILL 3: PONTOS RELEVANTES DETALHADOS',
   '═══════════════════════════════════════════════════════════════════',
   'Mapeamento EXAUSTIVO do que torna este caso UNICO.',
-  'NAO faca resumo superficial - mapeie todos os detalhes relevantes.',
+  'NAO faca resumo superficial - mapeie TODOS os detalhes relevantes (5-15 pontos).',
+  '',
+  '3.0. ASSUNTO PRINCIPAL E COMPLEMENTARES: identifique o assunto PRINCIPAL do documento e os',
+  'assuntos COMPLEMENTARES (temas secundarios que tambem aparecem). Cada um vira um item ou tag.',
+  'Registre TODAS as circunstancias e peculiaridades que tornam o caso concreto unico.',
+  'Exemplo (nepotismo): a autoridade envolvida (prefeito, secretario, procurador, vereador, presidente',
+  'da camara, cargo em comissao), o GRAU de parentesco (esposa, irmao, pai, filho, primo, sogro, tio,',
+  'sobrinho, etc.) e outras formas de vinculo/familiaridade (amigo, compadre, namorada, noiva, socio).',
+  'Para CADA circunstancia relevante, registre COMO o redator a tratou e qual o fundamento aplicado.',
   '',
   '3.1. PESSOAS ENVOLVIDAS: identifique TODAS as pessoas mencionadas, com cargo/funcao.',
   'Exemplos: prefeito, vice-prefeito, secretarios, vereadores, procuradores, servidores comissionados,',
@@ -319,10 +330,10 @@ const UNIFIED_SYSTEM_PROMPT = [
   '- classification.contexto: 1-5 circunstancias facticas.',
   '- ementa.assunto: CURTO (1-2 palavras), ideal para busca rapida.',
   '- ementa.sintese: 1-3 frases, descritiva do CONTEUDO do documento.',
-  '- ementa.fundamentacao: cite a tese/razao de decidir; dispositivos legais (artigos de lei).',
-  '- ementa.materias: tags SEMANTICAS amplas para busca por tema no chat.',
+  '- ementa.fundamentacao: registre COMO o redator tratou os pontos e QUAIS fundamentos foram decisivos (tese, ratio, dispositivos, sumulas, precedentes).',
+  '- ementa.materias: tags SEMANTICAS amplas para busca por tema no chat (assunto principal + complementares).',
   '- ementa.keywords: TODAS as palavras relevantes, incluindo sinonimos (min 5, max 25).',
-  '- key_points.items: 3-8 pontos OBJETIVOS e ESPECIFICOS, mapeando o que torna o caso UNICO.',
+  '- key_points.items: 5-15 pontos OBJETIVOS e ESPECIFICOS, mapeando o que torna o caso UNICO (assunto principal, complementares, circunstancias, autoridades, vinculos, valores, datas, decisao e seus fundamentos).',
   '- key_points.pessoas_envolvidas: TODAS as pessoas mencionadas, com cargo/funcao.',
   '- key_points.relacionamentos: parentesco, afinidade, amizade, compadrio, vinculo societario.',
   '- key_points.citacoes_juridicas: legislacao, sumulas, jurisprudencia, doutrina.',
@@ -788,7 +799,7 @@ function normalizeKeyPoints(raw: unknown): KeyPoints {
   if (!obj) return getDefaultKeyPoints()
   const items: PontoRelevante[] = []
   if (Array.isArray(obj.items)) {
-    const raw = obj.items.slice(0, 8)
+    const raw = obj.items.slice(0, MAX_KEY_POINTS)
     for (const x of raw) {
       if (typeof x === 'string') {
         // Backward compat: string[] (formato antigo)

@@ -117,14 +117,19 @@ Causas reais dos problemas relatados:
 - ✅ **Telemetria** na planilha do acervo: `AnalysisMethodBadge` mostra se o documento
   foi analisado por **LLM** ou caiu na **Heurística (sem LLM)** — com dica de reanalisar.
 
-**Pendente (Fase 3b)**
+**Fase 3b ✅ (esta entrega)**
 
-- 🔜 Refino de prompt da **ementa** e dos **pontos relevantes** com checklist explícito
-  (assunto principal + complementares; autoridades e cargos; graus de parentesco;
-  outros vínculos; fundamentos que embasaram a decisão) — hoje já estruturado, falta
-  endurecer as instruções e validar contra a taxonomia.
-- 🔜 Reprocessar o acervo existente com o novo pipeline (batch já existe:
-  `adminReanalyzeBatch` / fila).
+- ✅ Prompt do agente de acervo **endurecido** (`services/acervo-analyzer.ts`):
+  - Ementa: `fundamentacao` deve registrar **como o redator tratou cada ponto** e
+    **quais fundamentos** (tese/ratio/dispositivos/súmulas/precedentes) foram decisivos;
+    `sintese` e `conclusao` mais substantivas.
+  - Pontos relevantes: novo item **3.0** (assunto principal + complementares + todas as
+    circunstâncias), com o exemplo de nepotismo (autoridade → grau de parentesco →
+    outros vínculos) e registro de como cada circunstância foi tratada.
+  - Cobertura de leitura: `MAX_SOURCE_CHARS` 14k→20k; itens de pontos relevantes 8→15.
+- ✅ Testes ajustados (cap 15). Suite: 142 verdes.
+- ℹ️ Reprocessar o acervo existente: usar o batch já existente (`adminReanalyzeBatch` /
+  fila em "Upload de Documentos") — nenhum código novo necessário.
 
 ## Fase 4 — Visualizador / Editor do documento 🔜
 
