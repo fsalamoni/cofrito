@@ -36,6 +36,7 @@
  */
 import { onCall, HttpsError, onRequest } from 'firebase-functions/v2/https'
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore'
+import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { logger } from 'firebase-functions/v2'
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { getFirestore } from '../services/firestore'
@@ -169,6 +170,38 @@ export const onProcessingQueueUpdated = onDocumentUpdated(
       const db = getFirestore()
       await db.doc(QUEUE_DOC_PATH).set({ processing: false, lastTickAt: FieldValue.serverTimestamp() }, { merge: true })
     }
+  },
+)
+
+// ── 1b) Driver AGENDADO: garante avanço mesmo sem updates/frontend ──────
+
+/**
+ * Roda a cada 1 minuto. Se a fila estiver 'running', DRENA (processa) — mesmo
+ * que o trigger nao tenha disparado (ex: fila parada ha' horas) e mesmo com o
+ * navegador fechado. Recupera locks travados. Esta e' a rede de seguranca
+ * DEFINITIVA: o processamento NUNCA fica preso para sempre.
+ */
+export const scheduledQueueDriver = onSchedule(
+  {
+    schedule: 'every 1 minutes',
+    region: 'southamerica-east1',
+    timeoutSeconds: 300,
+    memory: '1GiB',
+    cpu: 1,
+  },
+  async () => {
+    const db = getFirestore()
+    const snap = await db.doc(QUEUE_DOC_PATH).get()
+    if (!snap.exists) return
+    const q = snap.data() as QueueState
+    if (q.status !== 'running') return
+    // Se ha um drain ATIVO e recente, deixa ele continuar.
+    if (q.processing === true && !isStaleLock(q.lastTickAt)) {
+      logger.debug('scheduledQueueDriver: drain em andamento, skip')
+      return
+    }
+    const result = await drainQueue(280_000)
+    logger.info('scheduledQueueDriver.done', result)
   },
 )
 

@@ -9,7 +9,7 @@
  *  3. Recarrega a pagina se removeu algum SW (para o proximo carregamento
  *     ser sem SW)
  */
-const SW_VERSION = 'v26' // bump a cada release crítica
+const SW_VERSION = 'v27' // bump a cada release crítica
 
 export async function nukeAllCaches(): Promise<boolean> {
   if (typeof window === 'undefined') return false
