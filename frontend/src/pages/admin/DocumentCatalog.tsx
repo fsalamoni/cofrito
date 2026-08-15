@@ -1162,6 +1162,18 @@ function AnalysisMethodBadge({ method }: { method?: string }) {
   )
 }
 
+/** Formata data que pode vir como Firestore Timestamp, ISO string, ou millis. */
+function fmtDate(v: any): string {
+  if (!v) return '—'
+  let ms = 0
+  if (typeof v?.toMillis === 'function') ms = v.toMillis()
+  else if (typeof v?.seconds === 'number') ms = v.seconds * 1000
+  else if (typeof v === 'number') ms = v
+  else if (typeof v === 'string') { const d = new Date(v).getTime(); ms = Number.isFinite(d) ? d : 0 }
+  if (!ms) return '—'
+  return new Date(ms).toLocaleString('pt-BR')
+}
+
 function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
   return (
     <div>
@@ -1179,8 +1191,8 @@ function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
       <Field label="Tamanho compactado">{doc.compressedSize ? `${(doc.compressedSize / 1024).toFixed(1)} KB` : '—'}</Field>
       <Field label="Compressao">{doc.compressionGain || '—'}</Field>
       <Field label="Chunks criados">{full?.chunksCount ?? '—'}</Field>
-      <Field label="Criado em">{doc.createdAt ? new Date(doc.createdAt).toLocaleString('pt-BR') : '—'}</Field>
-      <Field label="Atualizado em">{doc.updatedAt ? new Date(doc.updatedAt).toLocaleString('pt-BR') : '—'}</Field>
+      <Field label="Criado em">{fmtDate(doc.createdAt)}</Field>
+      <Field label="Atualizado em">{fmtDate(doc.updatedAt)}</Field>
       {doc.analysisError && (
         <div style={{ marginTop: 12, padding: 12, background: '#fee2e2', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>
           Erro: {doc.analysisError}
