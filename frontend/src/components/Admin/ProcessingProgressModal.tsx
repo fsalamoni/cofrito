@@ -9,7 +9,7 @@
  *
  * Persiste entre reloads (estado vem do Firestore).
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { X, Check, AlertCircle, Clock, Trash2, RefreshCw } from 'lucide-react'
 import { firestore } from '@/lib/firebase'
@@ -93,6 +93,34 @@ export function ProcessingProgressModal({ open, onClose }: { open: boolean; onCl
   const [now, setNow] = useState(Date.now())
   const [clearing, setClearing] = useState(false)
   const [forcing, setForcing] = useState(false)
+  // Refs para o auto-driver (evita stale closure)
+  const statusRef = useRef<string>('idle')
+  const tickInFlightRef = useRef(false)
+
+  // AUTO-DRIVER: enquanto a fila estiver 'running', cutuca o backend a cada 4s.
+  // Garante o avanço mesmo se o trigger do Firestore estiver lento/indisponível,
+  // e recupera locks travados. O backend deduplica via lock (chamadas concorrentes
+  // retornam na hora). Só UMA chamada fica em voo por vez.
+  useEffect(() => {
+    if (!open) return
+    let stopped = false
+    const drive = async () => {
+      if (stopped || tickInFlightRef.current) return
+      if (statusRef.current !== 'running') return
+      tickInFlightRef.current = true
+      try {
+        await api.adminForceQueueTick()
+      } catch {
+        /* silencioso: o onSnapshot mostra o estado real */
+      } finally {
+        tickInFlightRef.current = false
+      }
+    }
+    // dispara logo ao abrir (se estiver running) e depois a cada 4s
+    void drive()
+    const iv = setInterval(() => { void drive() }, 4000)
+    return () => { stopped = true; clearInterval(iv) }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -103,11 +131,13 @@ export function ProcessingProgressModal({ open, onClose }: { open: boolean; onCl
 
     unsubQueue = onSnapshot(queueRef, (snap) => {
       if (!snap.exists) {
+        statusRef.current = 'idle'
         setQueue(null)
         setDocs([])
         return
       }
       const newQueue = snap.data() as QueueState
+      statusRef.current = newQueue.status
       setQueue(newQueue)
 
       // Atualizar listeners dos docs (se mudou o conjunto)
