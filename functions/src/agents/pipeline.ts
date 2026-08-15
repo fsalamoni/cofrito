@@ -178,6 +178,15 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
           logger,
         })
         for (const d of result.docs) {
+          // Relevancia proporcional ao score (normalizada). Fallback "mais proximo"
+          // recebe relevancia baixa e o snippet leva uma ressalva explicita.
+          const relevance = d.isClosestMatch
+            ? 0.3
+            : Math.min(0.95, 0.55 + Math.min(0.4, (d.matchScore || 0) / 40))
+          const baseSnippet = (d.ementa?.sintese || d.ementa?.assunto || d.fileName || '').slice(0, 800)
+          const snippet = d.isClosestMatch
+            ? `[Correspondência aproximada — não há documento que se encaixe perfeitamente na busca] ${baseSnippet}`
+            : baseSnippet
           fourLevelSources.push({
             id: d.id,
             docId: d.id,
@@ -185,8 +194,8 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
             section: 'corpus-search-4level',
             url: d.storagePath,
             type: 'internal-document',
-            relevance: 0.7,  // baseline — o runResearcherInternal pode sobrescrever
-            snippet: (d.ementa?.sintese || d.ementa?.assunto || d.fileName || '').slice(0, 800),
+            relevance,
+            snippet,
             fullText: d.textContent || d.textOriginal,
             date: d.updatedAt || d.createdAt,
             sourcePath: 'corpus/',
