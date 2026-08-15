@@ -214,6 +214,60 @@ describe('acervo-analyzer (agente unificado)', () => {
       expect(result.totalLatencyMs).toBeGreaterThanOrEqual(40)
       expect(result.totalLatencyMs).toBeLessThan(500)
     })
+
+    it('reporta error (motivo) quando cai na heuristica por LLM indisponivel', async () => {
+      vi.mocked(generateWithProvider).mockRejectedValue(new Error('API indisponivel'))
+      const result = await analyzeAcervoDoc(mockInput)
+      expect(result.method).toBe('heuristic')
+      expect(result.error).toMatch(/LLM indisponivel/i)
+    })
+
+    it('RECUPERA ementa real de uma resposta TRUNCADA (nao cai na heuristica)', async () => {
+      // Simula resposta cortada por maxTokens: JSON valido ate' o meio de key_points.
+      const full = unifiedJson({ assunto: 'Nepotismo cruzado' })
+      // corta no meio do array de items (dentro de key_points)
+      const cutAt = full.indexOf('"key_points"') + 40
+      const truncated = full.slice(0, cutAt)
+      vi.mocked(generateWithProvider).mockResolvedValueOnce({
+        content: truncated,
+        tokens: { input: 100, output: 3000, total: 3100 },
+      })
+      const result = await analyzeAcervoDoc(mockInput)
+      // A ementa (que vem ANTES de key_points) foi preservada pelo reparo.
+      expect(result.method).toBe('llm')
+      expect(result.repaired).toBe(true)
+      expect(result.ementa?.assunto).toBe('Nepotismo cruzado')
+      expect(result.classification?.natureza).toBe('consultivo')
+    })
+  })
+})
+
+describe('repairTruncatedJson', () => {
+  it('fecha objeto truncado no meio de uma string', async () => {
+    const { repairTruncatedJson } = await import('./acervo-analyzer')
+    const repaired = repairTruncatedJson('{"a":"b","c":"incompl')
+    expect(repaired).not.toBeNull()
+    expect(() => JSON.parse(repaired!)).not.toThrow()
+    expect(JSON.parse(repaired!)).toEqual({ a: 'b' })
+  })
+
+  it('fecha arrays e objetos aninhados abertos', async () => {
+    const { repairTruncatedJson } = await import('./acervo-analyzer')
+    const repaired = repairTruncatedJson('{"items":[{"t":"x"},{"t":"y')
+    expect(repaired).not.toBeNull()
+    const parsed = JSON.parse(repaired!)
+    expect(parsed.items[0]).toEqual({ t: 'x' })
+  })
+
+  it('remove virgula pendente no fim', async () => {
+    const { repairTruncatedJson } = await import('./acervo-analyzer')
+    const repaired = repairTruncatedJson('{"a":1,"b":2,')
+    expect(JSON.parse(repaired!)).toEqual({ a: 1, b: 2 })
+  })
+
+  it('retorna null para JSON ja completo', async () => {
+    const { repairTruncatedJson } = await import('./acervo-analyzer')
+    expect(repairTruncatedJson('{"a":1}')).toBeNull()
   })
 })
 
