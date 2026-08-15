@@ -778,9 +778,10 @@ async function executeStep(
         logger.warn('process-queue: falha ao resolver agents-config/taxonomia', { err: (err as Error).message })
       }
       let result: { classification: Classification | null; ementa: Ementa | null; keyPoints: KeyPoints }
+      let method: 'llm' | 'heuristic' = 'heuristic'
 
       if (llmConfig) {
-        result = await Promise.race([
+        const r = await Promise.race([
           analyzeAcervoDoc({
             uid: docId,
             docId,
@@ -791,9 +792,12 @@ async function executeStep(
           }),
           timeout(STEP_TIMEOUT_MS, 'classifying'),
         ])
+        result = r
+        method = r.method  // 'llm' se o modelo respondeu; 'heuristic' se caiu no fallback
       } else {
-        // Sem LLM - usa heuristica
+        // Sem LLM configurado - usa heuristica
         result = getHeuristicAnalysis(fileName, text)
+        method = 'heuristic'
       }
 
       await docRef.set(
@@ -801,11 +805,12 @@ async function executeStep(
           classification: result.classification,
           ementa: result.ementa,
           keyPoints: result.keyPoints,
+          analysisMethod: method,
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
       )
-      logger.info(logPrefix + '.done', { hasClassification: !!result.classification, hasEmenta: !!result.ementa })
+      logger.info(logPrefix + '.done', { hasClassification: !!result.classification, hasEmenta: !!result.ementa, method })
       return
     }
 

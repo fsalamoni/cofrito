@@ -1260,6 +1260,22 @@ function DocumentoTab({ doc }: { doc: DocumentListItem; full?: any }) {
         >
           Baixar original
         </a>
+        <a
+          href={downloadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            padding: '6px 12px',
+            background: '#fff',
+            color: '#1a4d8f',
+            border: '1px solid #1a4d8f',
+            borderRadius: 6,
+            fontSize: 13,
+            textDecoration: 'none',
+          }}
+        >
+          Abrir em nova aba
+        </a>
         <span style={{ fontSize: 12, color: '#6b7280' }}>
           {doc.fileName} ({(doc.originalSize ? doc.originalSize / 1024 : 0).toFixed(1)} KB)
         </span>
@@ -1582,6 +1598,111 @@ function AnaliseEditor({ doc, onClose }: { doc: DocumentListItem; onClose: () =>
   )
 }
 
+/**
+ * EmentaJuridica — apresenta a ementa como um documento jurídico coeso
+ * (rubrica + assunto + síntese do caso + fundamentação + conclusão), no estilo
+ * de uma ementa de acórdão/parecer — e não como campos soltos.
+ */
+function EmentaJuridica({ ementa, analysisMethod }: { ementa: any; analysisMethod?: string }) {
+  const areas: string[] = Array.isArray(ementa.areas) && ementa.areas.length
+    ? ementa.areas
+    : []
+  const rubricaParts = [...areas, ementa.assunto].filter(Boolean).map((s: string) => String(s).trim())
+  const rubrica = rubricaParts.join('. ').toUpperCase()
+  const sintese = (ementa.sintese || '').trim()
+  const fundamentacao = (ementa.fundamentacao || '').trim()
+  const conclusao = (ementa.conclusao || '').trim()
+  const looksHeuristic =
+    analysisMethod === 'heuristic' ||
+    /an[aá]lise llm n[aã]o dispon[ií]vel|aguardando rean[aá]lise/i.test(`${sintese} ${fundamentacao} ${conclusao}`)
+
+  const ident = [
+    ementa.tipo && `Tipo: ${ementa.tipo}`,
+    ementa.numero && `Nº ${ementa.numero}`,
+    ementa.data && `Data: ${ementa.data}`,
+    ementa.autor && `Autor: ${ementa.autor}`,
+    ementa.destinatario && `Destinatário: ${ementa.destinatario}`,
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <div>
+      {looksHeuristic && (
+        <div style={{ padding: 10, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, color: '#92400e', marginBottom: 10 }}>
+          ⚠️ Esta ementa foi gerada por <strong>heurística</strong> (o LLM não analisou este documento).
+          Clique em <strong>Re-analisar</strong> para gerar a ementa jurídica completa com o modelo.
+        </div>
+      )}
+
+      {/* Documento estilo ementa */}
+      <div style={ementaCardStyle}>
+        <div style={{ textAlign: 'center', fontWeight: 700, letterSpacing: 1, color: '#0f172a', marginBottom: 8 }}>
+          E M E N T A
+        </div>
+        {ident && <div style={{ fontSize: 11, color: '#6b7280', textAlign: 'center', marginBottom: 10 }}>{ident}</div>}
+        {rubrica && (
+          <p style={ementaRubricaStyle}>{rubrica}.</p>
+        )}
+        {sintese && (
+          <p style={ementaParaStyle}><strong>Síntese do caso. </strong>{sintese}</p>
+        )}
+        {fundamentacao && (
+          <p style={ementaParaStyle}><strong>Fundamentação jurídica. </strong>{fundamentacao}</p>
+        )}
+        {conclusao && (
+          <p style={{ ...ementaParaStyle, marginBottom: 0 }}><strong>Conclusão. </strong>{conclusao}</p>
+        )}
+      </div>
+
+      {/* Metadados para busca (não fazem parte da ementa) */}
+      {(ementa.materias?.length || ementa.topicos?.length || ementa.keywords?.length) ? (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#9ca3af', marginBottom: 6 }}>
+            Metadados para busca
+          </div>
+          {ementa.materias?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+              {ementa.materias.map((m: string) => <span key={m} style={{ ...tagStyle, background: '#dcfce7', color: '#166534' }}>{m}</span>)}
+            </div>
+          )}
+          {ementa.topicos?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+              {ementa.topicos.map((t: string) => <span key={t} style={tagStyle}>{t}</span>)}
+            </div>
+          )}
+          {ementa.keywords?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {ementa.keywords.map((k: string) => <span key={k} style={{ ...tagStyle, background: '#dbeafe', color: '#1e40af' }}>{k}</span>)}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const ementaCardStyle: React.CSSProperties = {
+  background: '#fffdf7',
+  border: '1px solid #e7e0cf',
+  borderRadius: 8,
+  padding: 16,
+  fontFamily: 'Georgia, "Times New Roman", serif',
+}
+const ementaRubricaStyle: React.CSSProperties = {
+  fontSize: 13.5,
+  fontWeight: 700,
+  color: '#0f172a',
+  lineHeight: 1.6,
+  textAlign: 'justify',
+  margin: '0 0 10px',
+}
+const ementaParaStyle: React.CSSProperties = {
+  fontSize: 13.5,
+  color: '#1f2937',
+  lineHeight: 1.7,
+  textAlign: 'justify',
+  margin: '0 0 10px',
+}
+
 function AnaliseTab({ doc }: { doc: DocumentListItem }) {
   const [editing, setEditing] = useState(false)
   if (editing) {
@@ -1672,55 +1793,9 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
         </div>
       )}
 
-      <h4 style={sectionTitleStyle}>Ementa Juridica</h4>
+      <h4 style={sectionTitleStyle}>Ementa Jurídica</h4>
       {doc.ementa ? (
-        <>
-          <Field label="Tipo">{doc.ementa.tipo || '—'}</Field>
-          {doc.ementa.numero && <Field label="Numero">{doc.ementa.numero}</Field>}
-          {doc.ementa.data && <Field label="Data">{doc.ementa.data}</Field>}
-          {doc.ementa.autor && <Field label="Autor">{doc.ementa.autor}</Field>}
-          {doc.ementa.destinatario && <Field label="Destinatario">{doc.ementa.destinatario}</Field>}
-          <Field label="Assunto">{doc.ementa.assunto || '—'}</Field>
-          <Field label="Sintese">
-            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.sintese || '—'}</div>
-          </Field>
-          {doc.ementa.fundamentacao && (
-            <Field label="Fundamentacao">
-              <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.fundamentacao}</div>
-            </Field>
-          )}
-          <Field label="Conclusao">
-            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{doc.ementa.conclusao || '—'}</div>
-          </Field>
-          {doc.ementa.areas && doc.ementa.areas.length > 0 && (
-            <Field label="Areas">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {doc.ementa.areas.map((a: string) => <span key={a} style={tagStyle}>{a}</span>)}
-              </div>
-            </Field>
-          )}
-          {doc.ementa.topicos && doc.ementa.topicos.length > 0 && (
-            <Field label="Topicos">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {doc.ementa.topicos.map((t: string) => <span key={t} style={tagStyle}>{t}</span>)}
-              </div>
-            </Field>
-          )}
-          {doc.ementa.materias && doc.ementa.materias.length > 0 && (
-            <Field label="Materias (busca semantica)">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {doc.ementa.materias.map((m: string) => <span key={m} style={{ ...tagStyle, background: '#dcfce7', color: '#166534' }}>{m}</span>)}
-              </div>
-            </Field>
-          )}
-          {doc.ementa.keywords && doc.ementa.keywords.length > 0 && (
-            <Field label="Keywords">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {doc.ementa.keywords.map((k: string) => <span key={k} style={{ ...tagStyle, background: '#dbeafe', color: '#1e40af' }}>{k}</span>)}
-              </div>
-            </Field>
-          )}
-        </>
+        <EmentaJuridica ementa={doc.ementa} analysisMethod={doc.analysisMethod} />
       ) : (
         <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
           Sem ementa.

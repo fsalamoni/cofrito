@@ -168,6 +168,8 @@ export interface AcervoAnalysisResult {
   totalLatencyMs: number
   /** Tokens consumidos (input + output) */
   tokens: { input: number; output: number; total: number }
+  /** Como o resultado foi produzido: LLM real ou heuristica de fallback. */
+  method: 'llm' | 'heuristic'
 }
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -419,6 +421,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       keyPoints: heuristic.keyPoints,
       totalLatencyMs: Date.now() - start,
       tokens: { input: 0, output: 0, total: 0 },
+      method: 'heuristic',
     }
   }
 
@@ -433,6 +436,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       keyPoints: heuristic.keyPoints,
       totalLatencyMs: Date.now() - start,
       tokens: result.tokens,
+      method: 'heuristic',
     }
   }
 
@@ -457,6 +461,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
     keyPoints,
     totalLatencyMs,
     tokens: result.tokens,
+    method: 'llm',
   }
 }
 
