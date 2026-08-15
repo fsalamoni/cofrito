@@ -12,6 +12,7 @@
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
+import { randomUUID } from 'node:crypto'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
 import { analyzeAcervoDoc, getHeuristicAnalysis, type AcervoPipelineFlags } from '../services/acervo-analyzer'
@@ -931,11 +932,18 @@ export const adminGetDocumentDownloadUrl = onCall(
       const { getStorage } = await import('../services/storage')
       const bucket = getStorage().bucket()
       const file = bucket.file(storagePath)
-      const [url] = await file.getSignedUrl({
-        action: 'read',
-        expires: Date.now() + 60 * 60 * 1000, // 1h
-      })
-      return { url, expiresIn: 3600 }
+      // Usa TOKEN DE DOWNLOAD do Firebase Storage — NAO exige a permissao
+      // iam.serviceAccounts.signBlob (que a conta de servico padrao nao tem).
+      const [meta] = await file.getMetadata()
+      const existing = (meta.metadata || {}) as Record<string, string>
+      let token = existing.firebaseStorageDownloadTokens || ''
+      if (!token) {
+        token = randomUUID()
+        await file.setMetadata({ metadata: { ...existing, firebaseStorageDownloadTokens: token } })
+      }
+      const encodedPath = encodeURIComponent(storagePath)
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${token}`
+      return { url, expiresIn: 0 }
     } catch (err) {
       throw new HttpsError('internal', `Erro ao gerar URL: ${(err as Error).message}`)
     }

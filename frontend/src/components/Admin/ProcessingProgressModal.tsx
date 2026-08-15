@@ -97,10 +97,11 @@ export function ProcessingProgressModal({ open, onClose }: { open: boolean; onCl
   const statusRef = useRef<string>('idle')
   const tickInFlightRef = useRef(false)
 
-  // AUTO-DRIVER: enquanto a fila estiver 'running', cutuca o backend a cada 4s.
-  // Garante o avanço mesmo se o trigger do Firestore estiver lento/indisponível,
-  // e recupera locks travados. O backend deduplica via lock (chamadas concorrentes
-  // retornam na hora). Só UMA chamada fica em voo por vez.
+  // AUTO-DRIVER (rede de segurança): o trigger do Firestore e o agendador (1 min)
+  // fazem o trabalho pesado. Aqui só cutucamos o backend a cada ~20s enquanto a
+  // fila estiver 'running', para recuperar locks travados / dar um empurrão. O
+  // backend deduplica via lock (chamadas concorrentes retornam na hora), e só UMA
+  // chamada fica em voo por vez. Intervalo alto evita contenção no doc da fila.
   useEffect(() => {
     if (!open) return
     let stopped = false
@@ -116,9 +117,9 @@ export function ProcessingProgressModal({ open, onClose }: { open: boolean; onCl
         tickInFlightRef.current = false
       }
     }
-    // dispara logo ao abrir (se estiver running) e depois a cada 4s
+    // dispara logo ao abrir (se estiver running) e depois a cada ~20s
     void drive()
-    const iv = setInterval(() => { void drive() }, 4000)
+    const iv = setInterval(() => { void drive() }, 20000)
     return () => { stopped = true; clearInterval(iv) }
   }, [open])
 
