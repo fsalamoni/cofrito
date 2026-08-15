@@ -489,10 +489,17 @@ async function drainQueue(budgetMs: number): Promise<AdvanceResult> {
 
   let last: AdvanceResult = { more: false, processed: false, currentDocId: null, currentStep: null, queueStatus: 'running' }
   let iterations = 0
+  let lastHeartbeat = Date.now()
   try {
     while (Date.now() < deadline) {
       last = await advanceOnce()
       iterations++
+      // Heartbeat NA FILA no maximo a cada 4s (mantem lastTickAt fresco p/ o
+      // stale-lock e para a UI, sem escrever no doc da fila a cada etapa).
+      if (Date.now() - lastHeartbeat > 4000) {
+        try { await queueRef.set({ lastTickAt: FieldValue.serverTimestamp() }, { merge: true }) } catch { /* ignora */ }
+        lastHeartbeat = Date.now()
+      }
       if (!last.more) break
       if (iterations > 10000) { logger.warn('drainQueue.tooManyIterations'); break }
     }
@@ -573,11 +580,12 @@ async function advanceOnce(): Promise<AdvanceResult> {
   // (Bug antigo: executeStep('queued') caia no default e ERRAVA todo doc.)
   if (step === 'queued') {
     const first: ProcessingStep = 'json_creating'
+    // Escreve só no DOC (o progresso por-etapa vem do processingState do doc).
+    // NAO escreve no doc da fila a cada etapa (evita "hot document" / DEADLINE).
     await currentDocRef.set(
       { processingState: { step: first, stepLabel: STEP_LABELS[first], stepStartedAt: FieldValue.serverTimestamp(), error: null, failedStep: null, retryCount: 0 } },
       { merge: true },
     )
-    await queueRef.set({ currentStep: first, lastTickAt: FieldValue.serverTimestamp() }, { merge: true })
     return { more: true, processed: true, currentDocId, currentStep: first, queueStatus: 'running' }
   }
 
@@ -600,28 +608,35 @@ async function advanceOnce(): Promise<AdvanceResult> {
     await executeStep(currentDocId, currentDocRef, docData, step)
     const nextStep = getNextStep(step)
     if (nextStep === 'completed') {
+      // Doc concluido: limpa erros antigos (analysisError) e marca analisado.
       await currentDocRef.set(
-        { processingState: { step: 'completed', stepLabel: STEP_LABELS.completed, completedAt: FieldValue.serverTimestamp(), error: null }, status: 'analisado', analyzedAt: FieldValue.serverTimestamp() },
+        {
+          processingState: { step: 'completed', stepLabel: STEP_LABELS.completed, completedAt: FieldValue.serverTimestamp(), error: null, failedStep: null },
+          status: 'analisado',
+          analyzedAt: FieldValue.serverTimestamp(),
+          analysisError: FieldValue.delete(),
+        },
         { merge: true },
       )
-      await queueRef.set({ doneCount: (queue.doneCount || 0) + 1, lastTickAt: FieldValue.serverTimestamp(), currentStep: 'completed' }, { merge: true })
+      // Escrita na fila apenas por-doc (doneCount), nao por-etapa.
+      await queueRef.set({ doneCount: (queue.doneCount || 0) + 1 }, { merge: true })
       logger.info('advanceOnce.docCompleted', { docId: currentDocId })
       return await advanceToNextDoc(queue, currentDocId)
     }
+    // Proxima etapa do MESMO doc: escreve só no DOC (progresso ao vivo por-doc).
     await currentDocRef.set(
       { processingState: { step: nextStep, stepLabel: STEP_LABELS[nextStep], stepStartedAt: FieldValue.serverTimestamp(), error: null } },
       { merge: true },
     )
-    await queueRef.set({ lastTickAt: FieldValue.serverTimestamp(), currentStep: nextStep }, { merge: true })
     return { more: true, processed: true, currentDocId, currentStep: nextStep, queueStatus: 'running' }
   } catch (err) {
     const errMsg = (err as Error).message
     logger.error('advanceOnce.stepError', { docId: currentDocId, step, err: errMsg })
     await currentDocRef.set(
-      { processingState: { step: 'error', stepLabel: STEP_LABELS.error, error: errMsg, failedStep: step, retryCount: processingState.retryCount || 0 }, status: 'erro_analise', analysisError: `Step '${step}' falhou: ${errMsg}` },
+      { processingState: { step: 'error', stepLabel: STEP_LABELS.error, error: errMsg, failedStep: step, retryCount: processingState.retryCount || 0 }, status: 'erro_analise', analysisError: `Etapa '${step}' falhou: ${errMsg}` },
       { merge: true },
     )
-    await queueRef.set({ errorCount: (queue.errorCount || 0) + 1, lastTickAt: FieldValue.serverTimestamp(), currentStep: 'error' }, { merge: true })
+    await queueRef.set({ errorCount: (queue.errorCount || 0) + 1 }, { merge: true })
     return { more: true, processed: true, currentDocId, currentStep: 'error', queueStatus: 'running' }
   }
 }
@@ -669,8 +684,9 @@ async function advanceToNextDoc(
     { processingState: { step: 'queued' as ProcessingStep, stepLabel: STEP_LABELS.queued, queuedAt: FieldValue.serverTimestamp(), error: null, failedStep: null, retryCount: 0 } },
     { merge: true },
   )
+  // Uma escrita na fila por-doc (troca do doc atual). lastTickAt vem do heartbeat.
   await queueRef.set(
-    { docIds: remainingDocIds, currentDocId: nextDocId, currentStep: 'queued' as ProcessingStep, lastTickAt: FieldValue.serverTimestamp() },
+    { docIds: remainingDocIds, currentDocId: nextDocId },
     { merge: true },
   )
   return { more: true, processed: true, currentDocId: nextDocId, currentStep: 'queued', queueStatus: 'running' }
