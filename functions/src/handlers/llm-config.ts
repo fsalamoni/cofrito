@@ -107,9 +107,13 @@ export const adminSetGlobalLLM = onCall({ cors: true, enforceAppCheck: false },
     return { ok: true, removed: true }
   }
   // Preservar a chave quando vier vazia/mascarada (não sobrescrever a salva).
+  // IMPORTANTE: cai de volta na chave LEGADA ainda presente no doc principal —
+  // senão um re-save sem redigitar a chave APAGARIA a chave (quebrando o LLM).
   let apiKey = cfg.apiKey
   if (isMaskedKey(apiKey)) {
-    apiKey = await readGlobalApiKey()
+    const existing = await loadConfigDoc<any>('admin-config/llm', 'llm-global')
+    const legacyKey = existing?.data?.apiKey as string | undefined
+    apiKey = await readGlobalApiKey(legacyKey)
   }
   // Doc principal SEM a apiKey (legível por signed-in só p/ detectar/exibir provider/model).
   const rest: Record<string, unknown> = { ...cfg }
