@@ -779,6 +779,8 @@ async function executeStep(
       }
       let result: { classification: Classification | null; ementa: Ementa | null; keyPoints: KeyPoints }
       let method: 'llm' | 'heuristic' = 'heuristic'
+      // Motivo diagnostico quando o resultado NAO veio do LLM (ementa generica).
+      let analysisLlmError: string | null = null
 
       if (llmConfig) {
         const r = await Promise.race([
@@ -794,10 +796,12 @@ async function executeStep(
         ])
         result = r
         method = r.method  // 'llm' se o modelo respondeu; 'heuristic' se caiu no fallback
+        analysisLlmError = r.error || null  // motivo do fallback/reparo (diagnostico)
       } else {
-        // Sem LLM configurado - usa heuristica
+        // Sem LLM configurado - usa heuristica. Registra o motivo p/ diagnostico.
         result = getHeuristicAnalysis(fileName, text)
         method = 'heuristic'
+        analysisLlmError = 'Nenhum LLM configurado (defina o modelo global em Configurações de LLM e salve a chave da API).'
       }
 
       await docRef.set(
@@ -806,11 +810,15 @@ async function executeStep(
           ementa: result.ementa,
           keyPoints: result.keyPoints,
           analysisMethod: method,
+          // Limpa o erro quando o LLM funcionou de fato; caso contrario registra o motivo.
+          analysisLlmError: method === 'llm' && !analysisLlmError
+            ? FieldValue.delete()
+            : (analysisLlmError || FieldValue.delete()),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
       )
-      logger.info(logPrefix + '.done', { hasClassification: !!result.classification, hasEmenta: !!result.ementa, method })
+      logger.info(logPrefix + '.done', { hasClassification: !!result.classification, hasEmenta: !!result.ementa, method, analysisLlmError })
       return
     }
 

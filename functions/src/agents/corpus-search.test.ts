@@ -148,14 +148,30 @@ describe('searchCorpusFourLevel', () => {
     expect(result.docs.some(d => d.id === 'doc2')).toBe(true)
   })
 
-  it('retorna vazio se nenhum doc bate', async () => {
+  it('retorna os mais proximos (fallback) quando nenhum doc bate diretamente', async () => {
     const point: ResearchPoint = {
       id: 'p3',
       query: 'tributação importação soja',
       keywords: ['tributação', 'importação', 'soja'],
     }
     const result = await searchCorpusFourLevel({ point, maxResults: 5 })
-    expect(result.docs).toEqual([])
+    // NAO retorna vazio: entrega os "mais proximos" com ressalva (usuario pediu isso).
+    expect(result.usedClosestFallback).toBe(true)
+    expect(result.docs.length).toBeGreaterThan(0)
+    expect(result.docs.every(d => d.isClosestMatch === true)).toBe(true)
+    expect(result.docs.every(d => d.matchScore === 0)).toBe(true)
+  })
+
+  it('marca correspondencias reais como NAO-fallback com score positivo', async () => {
+    const point: ResearchPoint = {
+      id: 'p3b',
+      query: 'nepotismo cargo comissionado',
+      keywords: ['nepotismo', 'cargo comissionado'],
+    }
+    const result = await searchCorpusFourLevel({ point, maxResults: 5 })
+    expect(result.usedClosestFallback).toBe(false)
+    expect(result.docs[0].isClosestMatch).toBe(false)
+    expect((result.docs[0].matchScore || 0)).toBeGreaterThan(0)
   })
 
   it('respeita maxResults', async () => {

@@ -83,6 +83,7 @@ interface DocumentListItem {
   analyzedAt?: string
   analysisError?: string
   analysisMethod?: string
+  analysisLlmError?: string
   createdAt?: string
   updatedAt?: string
   createdBy?: string
@@ -236,6 +237,7 @@ export function DocumentCatalog() {
               analyzedAt: data.analyzedAt,
               analysisError: data.analysisError,
               analysisMethod: data.analysisMethod,
+              analysisLlmError: data.analysisLlmError,
               createdAt: data.createdAt,
               updatedAt: data.updatedAt,
               createdBy: data.createdBy,
@@ -1603,7 +1605,7 @@ function AnaliseEditor({ doc, onClose }: { doc: DocumentListItem; onClose: () =>
  * (rubrica + assunto + síntese do caso + fundamentação + conclusão), no estilo
  * de uma ementa de acórdão/parecer — e não como campos soltos.
  */
-function EmentaJuridica({ ementa, analysisMethod }: { ementa: any; analysisMethod?: string }) {
+function EmentaJuridica({ ementa, analysisMethod, analysisLlmError }: { ementa: any; analysisMethod?: string; analysisLlmError?: string }) {
   const areas: string[] = Array.isArray(ementa.areas) && ementa.areas.length
     ? ementa.areas
     : []
@@ -1630,6 +1632,11 @@ function EmentaJuridica({ ementa, analysisMethod }: { ementa: any; analysisMetho
         <div style={{ padding: 10, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, color: '#92400e', marginBottom: 10 }}>
           ⚠️ Esta ementa foi gerada por <strong>heurística</strong> (o LLM não analisou este documento).
           Clique em <strong>Re-analisar</strong> para gerar a ementa jurídica completa com o modelo.
+          {analysisLlmError && (
+            <div style={{ marginTop: 6, fontSize: 11, color: '#78350f' }}>
+              <strong>Motivo:</strong> {analysisLlmError}
+            </div>
+          )}
         </div>
       )}
 
@@ -1795,7 +1802,7 @@ function AnaliseTab({ doc }: { doc: DocumentListItem }) {
 
       <h4 style={sectionTitleStyle}>Ementa Jurídica</h4>
       {doc.ementa ? (
-        <EmentaJuridica ementa={doc.ementa} analysisMethod={doc.analysisMethod} />
+        <EmentaJuridica ementa={doc.ementa} analysisMethod={doc.analysisMethod} analysisLlmError={doc.analysisLlmError} />
       ) : (
         <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
           Sem ementa.

@@ -170,12 +170,32 @@ export interface AcervoAnalysisResult {
   tokens: { input: number; output: number; total: number }
   /** Como o resultado foi produzido: LLM real ou heuristica de fallback. */
   method: 'llm' | 'heuristic'
+  /**
+   * Motivo do fallback para heuristica (se method === 'heuristic' apos tentar o LLM).
+   * Vazio quando method === 'llm'. Persistido em corpus/{docId}.analysisLlmError para
+   * que o admin consiga DIAGNOSTICAR por que a ementa saiu generica (chave ausente,
+   * erro do provedor, JSON truncado, etc).
+   */
+  error?: string
+  /**
+   * True quando a resposta do LLM veio truncada e foi reparada (fechamento de chaves).
+   * Nesse caso classification+ementa costumam estar OK, mas key_points pode estar parcial.
+   */
+  repaired?: boolean
 }
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 const MAX_SOURCE_CHARS = 20000  // cobertura maior p/ análise exaustiva (1 envio p/ 3 skills)
 const MAX_KEY_POINTS = 15       // pontos relevantes: mapeamento exaustivo do caso
+/**
+ * Orcamento de saida GENEROSO. O JSON unificado (classification + ementa + ate 15
+ * key_points com pessoas/relacionamentos/citacoes/reusable_content) e' grande;
+ * com 3000 tokens ele TRUNCAVA no meio de key_points -> JSON.parse falhava ->
+ * caia na heuristica (ementa generica "Analise LLM nao disponivel"). 8000 tokens
+ * cobrem a saida completa com folga. Se ainda assim truncar, o parser repara.
+ */
+const ANALYSIS_MAX_TOKENS = 8000
 const NATUREZA_VALUES: Natureza[] = ['consultivo', 'executorio', 'transacional', 'negocial', 'doutrinario', 'decisorio']
 
 // ── Prompt do agente unificado (3 skills em 1 chamada) ─────────────────
@@ -409,10 +429,11 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
     result = await generateWithProvider({
       systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
-      // maxTokens generoso: cobre 3 outputs estruturados
-      config: { ...input.llmConfig, maxTokens: 3000, temperature: 0.1 },
+      // maxTokens generoso: cobre a saida unificada completa (evita truncamento).
+      config: { ...input.llmConfig, maxTokens: ANALYSIS_MAX_TOKENS, temperature: 0.1 },
     })
   } catch (err) {
+    const reason = `LLM indisponivel: ${(err as Error).message}`
     logger.warn('analyzeAcervoDoc: LLM falhou, usando heuristica de fallback', { err: (err as Error).message })
     const heuristic = getHeuristicAnalysis(input.fileName, input.text)
     return {
@@ -422,13 +443,18 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       totalLatencyMs: Date.now() - start,
       tokens: { input: 0, output: 0, total: 0 },
       method: 'heuristic',
+      error: reason,
     }
   }
 
-  // 3. Parsear JSON unificado
+  // 3. Parsear JSON unificado (com reparo de truncamento).
   const parsed = tryParseUnifiedJson(result.content)
   if (!parsed.ok) {
-    logger.warn('analyzeAcervoDoc: JSON invalido, usando heuristica de fallback', { error: parsed.error })
+    const reason = `Resposta do LLM nao pode ser interpretada como JSON: ${parsed.error}`
+    logger.warn('analyzeAcervoDoc: JSON invalido, usando heuristica de fallback', {
+      error: parsed.error,
+      preview: (result.content || '').slice(0, 300),
+    })
     const heuristic = getHeuristicAnalysis(input.fileName, input.text)
     return {
       classification: heuristic.classification,
@@ -437,6 +463,7 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       totalLatencyMs: Date.now() - start,
       tokens: result.tokens,
       method: 'heuristic',
+      error: reason,
     }
   }
 
@@ -462,6 +489,8 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
     totalLatencyMs,
     tokens: result.tokens,
     method: 'llm',
+    repaired: parsed.repaired === true,
+    error: parsed.repaired ? 'Resposta do LLM veio truncada e foi reparada (key_points podem estar parciais).' : undefined,
   }
 }
 
@@ -929,26 +958,116 @@ function getDefaultEmenta(): Ementa {
 /**
  * Extrai JSON do formato unificado {classification, ementa, key_points}.
  * Tenta multiplas estrategias:
- *  1. Parse direto
- *  2. Remover markdown code blocks
- *  3. Encontrar primeiro { e ultimo }
+ *  1. Parse direto (apos remover markdown/fence)
+ *  2. Encontrar primeiro { e ultimo }
+ *  3. REPARO DE TRUNCAMENTO: se a resposta foi cortada (maxTokens), fecha
+ *     strings/arrays/objetos abertos. Como classification+ementa vem ANTES de
+ *     key_points no prompt, o reparo preserva justamente a ementa (o que o
+ *     usuario mais precisa) mesmo quando key_points ficou parcial.
  */
-function tryParseUnifiedJson(raw: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
-  if (!raw) return { ok: false, error: 'empty response' }
+function tryParseUnifiedJson(
+  raw: string,
+): { ok: true; value: Record<string, unknown>; repaired?: boolean } | { ok: false; error: string } {
+  if (!raw) return { ok: false, error: 'resposta vazia' }
   let jsonStr = raw.trim()
-  // 1. Remover markdown code blocks
+  // Remover markdown code blocks (```json ... ``` ou ``` ... ```)
   const fenced = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fenced) jsonStr = fenced[1].trim()
-  // 2. Encontrar primeiro { e ultimo }
+  // Recortar do primeiro { ate o ultimo } (quando fechado)
   const firstBrace = jsonStr.indexOf('{')
+  if (firstBrace < 0) return { ok: false, error: 'nenhum objeto JSON encontrado' }
   const lastBrace = jsonStr.lastIndexOf('}')
-  if (firstBrace < 0 || lastBrace < 0 || lastBrace < firstBrace) {
-    return { ok: false, error: 'no JSON object found' }
-  }
-  jsonStr = jsonStr.slice(firstBrace, lastBrace + 1)
+  const candidate = lastBrace > firstBrace ? jsonStr.slice(firstBrace, lastBrace + 1) : jsonStr.slice(firstBrace)
+
+  // Tentativa 1: parse direto
   try {
-    return { ok: true, value: JSON.parse(jsonStr) }
-  } catch (err) {
-    return { ok: false, error: (err as Error).message }
+    return { ok: true, value: JSON.parse(candidate) }
+  } catch {
+    // continua para o reparo
   }
+
+  // Tentativa 2: reparar truncamento (fecha aspas/arrays/objetos abertos)
+  const repaired = repairTruncatedJson(jsonStr.slice(firstBrace))
+  if (repaired) {
+    try {
+      return { ok: true, value: JSON.parse(repaired), repaired: true }
+    } catch (err) {
+      return { ok: false, error: `reparo falhou: ${(err as Error).message}` }
+    }
+  }
+  return { ok: false, error: 'JSON invalido e nao reparavel' }
+}
+
+/**
+ * Repara um JSON truncado (cortado no meio por limite de tokens).
+ *
+ * Passos:
+ *  1. Se terminou DENTRO de uma string, corta ate o inicio dessa string parcial.
+ *  2. Apara o "rabo" pendente: virgula final, e "chave": sem valor (dois-pontos
+ *     ou chave orfa) — situacao comum quando o corte cai logo apos uma chave.
+ *  3. Recalcula a pilha de delimitadores e fecha objetos/arrays abertos.
+ *
+ * Como classification+ementa vem ANTES de key_points no prompt, o corte
+ * costuma ocorrer em key_points — o reparo preserva a ementa (o que o usuario
+ * mais precisa). Retorna null se nao houver o que reparar.
+ */
+export function repairTruncatedJson(input: string): string | null {
+  if (!input) return null
+  const s = input
+
+  // Passo 0: detectar estado final (dentro de string?) e onde a string parcial comecou.
+  let inString = false
+  let escaped = false
+  let openQuoteIdx = -1
+  const depthStack: Array<'{' | '['> = []
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; openQuoteIdx = i; continue }
+    if (ch === '{' || ch === '[') depthStack.push(ch)
+    else if (ch === '}' || ch === ']') depthStack.pop()
+  }
+  if (depthStack.length === 0 && !inString) return null // ja' estava fechado
+
+  // Passo 1: se terminou dentro de uma string, descarta a string parcial.
+  let body = inString && openQuoteIdx >= 0 ? s.slice(0, openQuoteIdx) : s
+  body = body.trimEnd()
+
+  // Passo 2: apara virgula/chave orfa/dois-pontos pendentes no fim.
+  //  Ex: '{"a":"b","c":'  ->  remove ':' e a chave '"c"' e a ',' -> '{"a":"b"'
+  for (let guard = 0; guard < 50; guard++) {
+    if (body.endsWith(',')) { body = body.slice(0, -1).trimEnd(); continue }
+    if (body.endsWith(':')) {
+      body = body.slice(0, -1).trimEnd() // remove ':'
+      const keyMatch = body.match(/"(?:[^"\\]|\\.)*"$/) // remove a chave orfa
+      if (keyMatch) body = body.slice(0, body.length - keyMatch[0].length).trimEnd()
+      continue
+    }
+    break
+  }
+
+  // Passo 3: recalcula os delimitadores abertos no corpo aparado e os fecha.
+  const closeStack: Array<'{' | '['> = []
+  let inStr2 = false
+  let esc2 = false
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]
+    if (inStr2) {
+      if (esc2) esc2 = false
+      else if (ch === '\\') esc2 = true
+      else if (ch === '"') inStr2 = false
+      continue
+    }
+    if (ch === '"') { inStr2 = true; continue }
+    if (ch === '{' || ch === '[') closeStack.push(ch)
+    else if (ch === '}' || ch === ']') closeStack.pop()
+  }
+  const closers = closeStack.reverse().map((d) => (d === '{' ? '}' : ']')).join('')
+  const result = body + closers
+  return result.length > 2 ? result : null
 }
