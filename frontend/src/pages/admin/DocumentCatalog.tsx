@@ -1217,7 +1217,6 @@ function DocumentDownloadLinks({ doc }: { doc: DocumentListItem }) {
       .catch((err: any) => { if (alive) setError(err.message || 'Erro ao gerar URL') })
       .finally(() => { if (alive) setLoadingUrl(false) })
     return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id])
 
   const sizeKb = (doc.originalSize ? doc.originalSize / 1024 : 0).toFixed(1)
