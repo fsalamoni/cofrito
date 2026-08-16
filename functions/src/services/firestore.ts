@@ -40,9 +40,25 @@ export function getOrCreateApp(): adminApp.App {
   }
 }
 
+let _db: Firestore | undefined
+
 export function getFirestore(): Firestore {
+  if (_db) return _db
   const app = getOrCreateApp()
-  return adminGetFirestore(app)
+  const db = adminGetFirestore(app)
+  // ignoreUndefinedProperties: campos opcionais que o LLM nao preencheu vem como
+  // `undefined` (ex: keyPoints.items[].citacao). Sem isso, o Firestore REJEITA a
+  // escrita inteira ("Cannot use undefined as a Firestore value") e a etapa
+  // 'classifying' falha — descartando a analise LLM boa que acabou de ser gerada.
+  // settings() so' pode ser chamado 1x e antes do 1o uso; por isso cacheamos _db
+  // e protegemos com try/catch (idempotente).
+  try {
+    db.settings({ ignoreUndefinedProperties: true })
+  } catch {
+    /* settings ja' aplicadas ou firestore ja' em uso — segue */
+  }
+  _db = db
+  return _db
 }
 
 export function getAuthInstance(): Auth {
