@@ -196,6 +196,15 @@ const MAX_KEY_POINTS = 15       // pontos relevantes: mapeamento exaustivo do ca
  * cobrem a saida completa com folga. Se ainda assim truncar, o parser repara.
  */
 const ANALYSIS_MAX_TOKENS = 8000
+/**
+ * Timeout GENEROSO da chamada LLM de analise (o default do provider e' 60s).
+ * Gerar o JSON unificado completo (classification + ementa + ate 15 key_points
+ * detalhados) leva mais que 60s em modelos comuns -> a chamada era ABORTADA aos
+ * 60s ("LLM call excedeu o timeout de 60s") e caia na heuristica. 180s da folga
+ * para o modelo terminar. Deve ser MENOR que o STEP_TIMEOUT_MS da fila (200s) e
+ * que o timeout da Cloud Function que executa a etapa.
+ */
+const ANALYSIS_TIMEOUT_MS = 180_000
 const NATUREZA_VALUES: Natureza[] = ['consultivo', 'executorio', 'transacional', 'negocial', 'doutrinario', 'decisorio']
 
 // ── Prompt do agente unificado (3 skills em 1 chamada) ─────────────────
@@ -431,6 +440,8 @@ export async function analyzeAcervoDoc(input: AcervoAnalyzerInput): Promise<Acer
       messages: [{ role: 'user', content: userPrompt }],
       // maxTokens generoso: cobre a saida unificada completa (evita truncamento).
       config: { ...input.llmConfig, maxTokens: ANALYSIS_MAX_TOKENS, temperature: 0.1 },
+      // timeout generoso: a analise gera muito texto e nao pode abortar aos 60s.
+      timeoutMs: ANALYSIS_TIMEOUT_MS,
     })
   } catch (err) {
     const reason = `LLM indisponivel: ${(err as Error).message}`

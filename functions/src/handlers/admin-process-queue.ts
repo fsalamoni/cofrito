@@ -120,7 +120,19 @@ interface QueueState {
 
 const QUEUE_DOC_PATH = 'admin-config/processing-queue'
 const MAX_RETRIES_PER_STEP = 1   // 1 retry (evita gastar minutos em docs deterministicamente ruins)
-const STEP_TIMEOUT_MS = 90_000   // 90s por step (anti-hang; alinhado ao timeout do LLM)
+/**
+ * Timeout por step. DEVE ser MAIOR que o timeout interno da chamada LLM da analise
+ * (ANALYSIS_TIMEOUT_MS = 180s no acervo-analyzer) — senao a etapa era cortada aos
+ * 90s e a ementa saia heuristica ("LLM call excedeu o timeout de 60s").
+ */
+const STEP_TIMEOUT_MS = 200_000  // 200s por step (cobre a chamada LLM de 180s + overhead)
+/**
+ * Duracao maxima estimada de UMA step (>= STEP_TIMEOUT_MS + overhead de escrita).
+ * O drainQueue nao inicia uma nova step se nao houver esse tempo restante ate o
+ * timeout da Cloud Function — assim nenhuma step e' morta no meio (o que deixaria
+ * o doc preso em 'classifying' e o lock travado).
+ */
+const MAX_STEP_MS = 215_000
 /**
  * Se o lock (processing:true) ficar parado por mais que isso sem avancar, a
  * invocacao anterior provavelmente morreu (timeout/crash). Permitimos "roubar"
@@ -161,7 +173,8 @@ export const onProcessingQueueUpdated = onDocumentUpdated(
     // Drena a fila em loop (varias steps/docs numa mesma invocacao) ate acabar
     // ou ate o orcamento de tempo do trigger. Isso torna o encadeamento
     // confiavel (NAO depende de re-disparo do trigger a cada step).
-    const budgetMs = 500_000  // ~8,3 min (timeout do trigger e' 540s)
+    // Orcamento = timeout da funcao (540s); drainQueue reserva MAX_STEP_MS.
+    const budgetMs = 540_000
     try {
       const result = await drainQueue(budgetMs)
       logger.info('onProcessingQueueUpdated.drain', result)
@@ -200,7 +213,9 @@ export const scheduledQueueDriver = onSchedule(
       logger.debug('scheduledQueueDriver: drain em andamento, skip')
       return
     }
-    const result = await drainQueue(280_000)
+    // Orcamento = timeout da funcao (300s); drainQueue reserva MAX_STEP_MS, entao
+    // roda no maximo 1 step longa por invocacao (a rede de seguranca de 1 min).
+    const result = await drainQueue(300_000)
     logger.info('scheduledQueueDriver.done', result)
   },
 )
@@ -412,7 +427,7 @@ export const adminProcessQueueTick = onRequest(
   { cors: true, region: 'southamerica-east1', timeoutSeconds: 540, memory: '1GiB' },
   async (_req, res) => {
     try {
-      const result = await drainQueue(500_000)
+      const result = await drainQueue(540_000)
       res.json({ ok: true, ...result })
     } catch (err) {
       logger.error('adminProcessQueueTick.error', { err: String(err) })
@@ -424,14 +439,15 @@ export const adminProcessQueueTick = onRequest(
 // ── 6) Public endpoint para o user forcar tick (onCall) ───────────────
 
 export const adminForceQueueTick = onCall(
-  { cors: true, enforceAppCheck: false, timeoutSeconds: 120, memory: '1GiB' },
+  { cors: true, enforceAppCheck: false, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
 
-    // Orcamento curto: a chamada retorna rapido e o frontend re-invoca (poll).
-    // Se o trigger ja' estiver drenando (lock ativo), retorna imediatamente.
-    const result = await drainQueue(45_000)
+    // Orcamento = timeout da funcao (300s); drainQueue reserva MAX_STEP_MS e roda
+    // no maximo 1 step longa. Se o trigger/scheduler ja' estiver drenando (lock
+    // ativo), retorna imediatamente sem fazer nada.
+    const result = await drainQueue(300_000)
     return { ok: true, ...result }
   },
 )
@@ -460,6 +476,12 @@ export function isStaleLock(lastTickAt: TimeLike | null | undefined): boolean {
  *
  * Confiavel: NAO depende do trigger re-disparar a cada step (o loop interno faz o
  * encadeamento). O lock impede execucoes concorrentes; lock stale e' recuperado.
+ */
+/**
+ * @param budgetMs Orcamento de tempo da INVOCACAO (tipicamente o timeout da Cloud
+ *   Function que chama). O loop so' inicia uma nova step se restar pelo menos
+ *   MAX_STEP_MS ate' o fim do orcamento — assim NUNCA inicia uma step que a
+ *   funcao mataria no meio (deixando o doc preso em 'classifying' e o lock travado).
  */
 async function drainQueue(budgetMs: number): Promise<AdvanceResult> {
   const db = getFirestore()
@@ -491,7 +513,9 @@ async function drainQueue(budgetMs: number): Promise<AdvanceResult> {
   let iterations = 0
   let lastHeartbeat = Date.now()
   try {
-    while (Date.now() < deadline) {
+    // Reserva MAX_STEP_MS: so' inicia nova step se ela couber ANTES do fim do
+    // orcamento da funcao (evita step morta no meio pelo timeout da Cloud Function).
+    while (Date.now() + MAX_STEP_MS <= deadline) {
       last = await advanceOnce()
       iterations++
       // Heartbeat NA FILA no maximo a cada 4s (mantem lastTickAt fresco p/ o
