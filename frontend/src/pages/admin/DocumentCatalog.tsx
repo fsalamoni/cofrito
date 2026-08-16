@@ -133,7 +133,7 @@ export function DocumentCatalog() {
 
   // Viewer state
   const [selected, setSelected] = useState<DocumentListItem | null>(null)
-  const [viewerTab, setViewerTab] = useState<'info' | 'documento' | 'texto' | 'analise' | 'json'>('info')
+  const [viewerTab, setViewerTab] = useState<'info' | 'texto' | 'analise' | 'json'>('info')
   const [showProcessModal, setShowProcessModal] = useState(false)
   // Auto-abrir modal se ja' ha fila rodando ao carregar
   useEffect(() => {
@@ -151,17 +151,11 @@ export function DocumentCatalog() {
   const [loadingFull, setLoadingFull] = useState(false)
   const [fullText, setFullText] = useState<string | null>(null)
   const [loadingTextContent, setLoadingTextContent] = useState(false)
-  const [docDownloadUrl, setDocDownloadUrl] = useState<string | null>(null)
 
   // Carregar textContent sob demanda (lazy) - evita DEADLINE_EXCEEDED
   useEffect(() => {
     if (selected && viewerTab === 'texto' && fullText === null && !loadingTextContent) {
       void loadTextContent()
-    }
-    if (selected && viewerTab === 'documento' && docDownloadUrl === null) {
-      api.adminGetDocumentDownloadUrl(selected.id)
-        .then((r: any) => setDocDownloadUrl(r.data.url))
-        .catch((err: any) => console.warn('Erro ao gerar URL de download:', err))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewerTab, selected])
@@ -1077,7 +1071,7 @@ export function DocumentCatalog() {
             </div>
 
             <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb' }}>
-              {(['info', 'documento', 'texto', 'analise', 'json'] as const).map((tab) => (
+              {(['info', 'texto', 'analise', 'json'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setViewerTab(tab)}
@@ -1086,7 +1080,7 @@ export function DocumentCatalog() {
                     ...(viewerTab === tab ? activeTabBtnStyle : {}),
                   }}
                 >
-                  {tab === 'info' ? 'Info' : tab === 'documento' ? 'Documento' : tab === 'texto' ? 'Texto' : tab === 'analise' ? 'Análise' : 'JSON'}
+                  {tab === 'info' ? 'Info' : tab === 'texto' ? 'Texto' : tab === 'analise' ? 'Análise' : 'JSON'}
                 </button>
               ))}
             </div>
@@ -1098,8 +1092,6 @@ export function DocumentCatalog() {
                 </div>
               ) : viewerTab === 'info' ? (
                 <InfoTab doc={selected} full={fullDoc} />
-              ) : viewerTab === 'documento' ? (
-                <DocumentoTab doc={selected} full={fullDoc} />
               ) : viewerTab === 'texto' ? (
                 <TextoTab doc={selected} full={fullDoc} fullText={fullText} />
               ) : viewerTab === 'analise' ? (
@@ -1179,6 +1171,7 @@ function fmtDate(v: any): string {
 function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
   return (
     <div>
+      <DocumentDownloadLinks doc={doc} />
       <Field label="ID">{doc.id}</Field>
       <Field label="File name">{doc.fileName || '—'}</Field>
       <Field label="Titulo">{doc.title || '—'}</Field>
@@ -1204,116 +1197,61 @@ function InfoTab({ doc, full }: { doc: DocumentListItem; full: any }) {
   )
 }
 
-function DocumentoTab({ doc }: { doc: DocumentListItem; full?: any }) {
+/**
+ * Botoes de download do arquivo original (Baixar / Abrir em nova aba).
+ * Exibido no topo da aba "Info" — os PDFs nao renderizam inline no navegador
+ * (sandbox/token), entao o usuario baixa ou abre em nova aba.
+ */
+function DocumentDownloadLinks({ doc }: { doc: DocumentListItem }) {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (downloadUrl || loadingUrl) return
+    let alive = true
+    setDownloadUrl(null)
+    setError(null)
     setLoadingUrl(true)
     api.adminGetDocumentDownloadUrl(doc.id)
-      .then((r: any) => setDownloadUrl(r.data.url))
-      .catch((err: any) => setError(err.message || 'Erro ao gerar URL'))
-      .finally(() => setLoadingUrl(false))
+      .then((r: any) => { if (alive) setDownloadUrl(r.data.url) })
+      .catch((err: any) => { if (alive) setError(err.message || 'Erro ao gerar URL') })
+      .finally(() => { if (alive) setLoadingUrl(false) })
+    return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id])
 
-  if (loadingUrl) {
-    return (
-      <div style={{ padding: 32, textAlign: 'center', color: '#6b7280' }}>
-        <Loader2 size={24} className="spin" /> Gerando URL de visualizacao...
-      </div>
-    )
-  }
-  if (error) {
-    return <div style={{ padding: 16, color: '#991b1b', background: '#fee2e2', borderRadius: 6 }}>Erro: {error}</div>
-  }
-  if (!downloadUrl) {
-    return <div style={{ padding: 16, color: '#6b7280' }}>Documento nao tem arquivo original no Storage.</div>
-  }
-
-  // Detectar tipo do arquivo pelo filename
-  const fname = (doc.fileName || '').toLowerCase()
-  const isPdf = fname.endsWith('.pdf')
-  const isDocx = fname.endsWith('.docx') || fname.endsWith('.doc')
-  const isImage = /\.(png|jpg|jpeg|gif|webp)$/i.test(fname)
-  const isText = /\.(txt|md|markdown)$/i.test(fname)
+  const sizeKb = (doc.originalSize ? doc.originalSize / 1024 : 0).toFixed(1)
 
   return (
-    <div>
-      <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <a
-          href={downloadUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          download={doc.fileName}
-          style={{
-            padding: '6px 12px',
-            background: '#1a4d8f',
-            color: '#fff',
-            borderRadius: 6,
-            fontSize: 13,
-            textDecoration: 'none',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          Baixar original
-        </a>
-        <a
-          href={downloadUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            padding: '6px 12px',
-            background: '#fff',
-            color: '#1a4d8f',
-            border: '1px solid #1a4d8f',
-            borderRadius: 6,
-            fontSize: 13,
-            textDecoration: 'none',
-          }}
-        >
-          Abrir em nova aba
-        </a>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>
-          {doc.fileName} ({(doc.originalSize ? doc.originalSize / 1024 : 0).toFixed(1)} KB)
-        </span>
-      </div>
-      {isPdf ? (
-        <iframe
-          src={downloadUrl}
-          title={doc.fileName || doc.id}
-          style={{
-            width: '100%',
-            height: 'calc(100vh - 200px)',
-            minHeight: 600,
-            border: '1px solid #e5e7eb',
-            borderRadius: 6,
-            background: '#f9fafb',
-          }}
-        />
-      ) : isImage ? (
-        <img
-          src={downloadUrl}
-          alt={doc.fileName || doc.id}
-          style={{ maxWidth: '100%', height: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}
-        />
-      ) : isDocx ? (
-        <div style={{ padding: 16, color: '#374151', background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
-          Documento Word (.docx). Baixe o original para abrir, ou veja a aba &ldquo;Texto&rdquo; para a versao reconstruida.
+    <div style={{ marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+      {loadingUrl ? (
+        <div style={{ fontSize: 13, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Loader2 size={14} className="spin" /> Gerando link do arquivo original...
         </div>
-      ) : isText ? (
-        <iframe
-          src={downloadUrl}
-          title={doc.fileName || doc.id}
-          style={{ width: '100%', height: 'calc(100vh - 200px)', minHeight: 600, border: '1px solid #e5e7eb', borderRadius: 6 }}
-        />
+      ) : error ? (
+        <div style={{ fontSize: 12, color: '#991b1b' }}>Erro ao gerar link: {error}</div>
+      ) : !downloadUrl ? (
+        <div style={{ fontSize: 12, color: '#6b7280' }}>Sem arquivo original no Storage.</div>
       ) : (
-        <div style={{ padding: 16, color: '#374151', background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
-          Tipo de arquivo nao suporta visualizacao inline. Baixe o original para abrir.
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            download={doc.fileName}
+            style={{ padding: '6px 12px', background: '#1a4d8f', color: '#fff', borderRadius: 6, fontSize: 13, textDecoration: 'none' }}
+          >
+            Baixar original
+          </a>
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ padding: '6px 12px', background: '#fff', color: '#1a4d8f', border: '1px solid #1a4d8f', borderRadius: 6, fontSize: 13, textDecoration: 'none' }}
+          >
+            Abrir em nova aba
+          </a>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>{doc.fileName} ({sizeKb} KB)</span>
         </div>
       )}
     </div>
