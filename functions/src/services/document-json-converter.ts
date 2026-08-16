@@ -95,11 +95,17 @@ export function textToStructuredJsonV2(
   const charsOriginal = text.length
   const format = detectFormat(filename)
 
-  // 1. Detectar e remover headers/footers repetidos
-  const { cleanedText, headersRemoved } = removeHeadersFooters(text)
+  // 1. Detectar e remover headers/footers repetidos (independe de \f)
+  const { cleanedText, headersRemoved } = removeHeadersFooters(text, pageCount)
 
-  // 2. Detectar e juntar paragrafos quebrados entre paginas
-  const { paragraphs: rawParagraphs, paragraphsJoined } = joinBrokenParagraphs(cleanedText)
+  // 2. Detectar e juntar paragrafos quebrados dentro de blocos
+  const { paragraphs: blockParagraphs, paragraphsJoined: joinedInBlock } = joinBrokenParagraphs(cleanedText)
+
+  // 2b. Reunir paragrafos partidos por QUEBRA DE PAGINA (o rodape removido deixou
+  //     as duas metades em blocos separados). Junta quando a metade anterior nao
+  //     termina em pontuacao final e a seguinte comeca em minuscula/continuacao.
+  const { paragraphs: rawParagraphs, joined: joinedAcrossPages } = mergeAcrossPageBreaks(blockParagraphs)
+  const paragraphsJoined = joinedInBlock + joinedAcrossPages
 
   // 3. Detectar secoes
   const { paragraphs: finalParagraphs, sections } = detectSections(rawParagraphs)
@@ -227,52 +233,131 @@ function detectFormat(filename: string): string {
 }
 
 /**
- * Detecta e remove headers/footers (linhas que se repetem em >= HEADER_FOOTER_THRESHOLD paginas).
+ * Marcadores tipicos de cabecalho/rodape institucional (orgao, endereco, contato,
+ * numero de pagina, assinatura). Uma linha que casa um marcador E se repete e'
+ * quase sempre cabecalho/rodape — nao conteudo.
  */
-function removeHeadersFooters(text: string): { cleanedText: string; headersRemoved: number } {
-  const pageDelimiter = /\f|\n\s*Page\s+\d+\s*(?:of\s+\d+)?\s*\n/i
-  const pages = text.split(pageDelimiter)
-  if (pages.length < HEADER_FOOTER_THRESHOLD) {
-    return { cleanedText: text, headersRemoved: 0 }
+const HEADER_FOOTER_MARKERS: RegExp[] = [
+  /\bp[áa]g(?:ina)?\b/i,
+  /\bfls?\.?\b/i,
+  /\bcep\b/i,
+  /\b\d{5}-?\d{3}\b/,                       // CEP numerico
+  /[\w.+-]+@[\w.-]+\.\w{2,}/,               // e-mail
+  /\btel\.?\b|\bfone\b|\bramal\b/i,
+  /assinad[oa]\s+digitalmente/i,
+  /documento\s+(?:eletr[ôo]nico|assinado)/i,
+  /\bcrc:?\b/i,
+  /minist[ée]rio\s+p[úu]blico/i,
+  /\bestado\s+d[oe]\b/i,
+  /tribunal\s+de\s+justi/i,
+  /poder\s+judici[áa]rio/i,
+  /\bcomarca\b/i,
+  /procuradoria/i,
+  /\b(?:av\.|avenida|rua|pra[çc]a|rodovia)\s/i,
+  /procedimento\s+n?[ºo]/i,
+  /\bevento\s*n?[ºo]?\s*\d/i,
+  /\bchave:\s*\w/i,
+]
+
+/** Mascara tokens volateis (numero de pagina/evento/data) para agrupar rodapes iguais. */
+function maskVolatileTokens(s: string): string {
+  return s
+    .replace(/\bp[áa]g(?:ina)?\.?\s*\d+(?:\s*(?:de|of|\/)\s*\d+)?/gi, 'pág§')
+    .replace(/\bevento\s*n?[ºo]?\s*\d+/gi, 'evento§')
+    .replace(/\bfls?\.?\s*\d+/gi, 'fls§')
+    .replace(/\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b/g, 'data§')
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, 'hora§')
+}
+
+/** Assinatura normalizada de uma linha (para contagem de repeticao). */
+function lineSignature(line: string): string {
+  return maskVolatileTokens(line.trim().toLowerCase()).replace(/\s+/g, ' ').slice(0, 200)
+}
+
+/**
+ * Detecta e remove headers/footers (linhas que se repetem entre paginas), SEM
+ * depender de delimitador de pagina (\f/"Page N") — o pdf-parse nao insere \f.
+ *
+ * Estrategia (por LINHA fisica, robusta):
+ *  1. Assina cada linha mascarando tokens volateis (numero de pagina/evento/data),
+ *     para que rodapes iguais em paginas diferentes colapsem na mesma assinatura.
+ *  2. Conta a frequencia de cada assinatura no documento inteiro.
+ *  3. Marca como cabecalho/rodape as linhas "semente":
+ *       - frequencia alta (repete em >= metade das paginas), OU
+ *       - repete >= 2x E casa um MARCADOR institucional (orgao/endereco/pagina), OU
+ *       - e' apenas um numero de pagina isolado que se repete.
+ *  4. EXPANDE o bloco: linhas que se repetem (>= 2x) e sao VIZINHAS de uma semente
+ *     tambem entram (o cabecalho/rodape e' um bloco contiguo; assim pega linhas
+ *     institucionais sem marcador explicito, ex.: nome do orgao/departamento).
+ *  5. Remove as linhas marcadas. As metades de paragrafo que ficarem adjacentes
+ *     serao reunidas depois (joinBrokenParagraphs + mergeAcrossPageBreaks).
+ */
+function removeHeadersFooters(
+  text: string,
+  pageCount?: number,
+): { cleanedText: string; headersRemoved: number } {
+  // Normaliza form-feed (quando presente) como quebra de linha/pagina.
+  const rawLines = text.replace(/\f/g, '\n').split('\n')
+  if (rawLines.length < 6) return { cleanedText: text, headersRemoved: 0 }
+
+  // Frequencia por assinatura
+  const freq = new Map<string, number>()
+  const sigs: string[] = rawLines.map((l) => lineSignature(l))
+  for (const sig of sigs) {
+    if (sig.length < 3) continue
+    freq.set(sig, (freq.get(sig) || 0) + 1)
   }
 
-  const lineCount = new Map<string, number>()
-  const normalize = (line: string) => line.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 100)
-  for (const page of pages) {
-    const seen = new Set<string>()
-    for (const line of page.split('\n')) {
-      const normalized = normalize(line)
-      if (normalized.length < 3) continue
-      if (CERTIFICATION_PATTERNS.some(p => p.test(normalized))) continue
-      if (seen.has(normalized)) continue
-      seen.add(normalized)
-      lineCount.set(normalized, (lineCount.get(normalized) || 0) + 1)
-    }
+  // Estimar numero de paginas
+  let pages = pageCount && pageCount > 0 ? pageCount : 0
+  if (pages === 0) {
+    const pageMarkers = rawLines.filter((l) => /\bp[áa]g(?:ina)?\.?\s*\d+/i.test(l)).length
+    pages = pageMarkers > 0 ? pageMarkers : Math.max(1, Math.round(rawLines.length / 45))
+  }
+  const strongThreshold = Math.max(HEADER_FOOTER_THRESHOLD, Math.ceil(pages * 0.5))
+
+  const isPureNumber = (l: string) => /^\W*\d{1,4}\W*$/.test(l.trim())
+  const matchesMarker = (l: string) => HEADER_FOOTER_MARKERS.some((re) => re.test(l))
+
+  // Passo 3: sementes
+  const boiler = new Array<boolean>(rawLines.length).fill(false)
+  const repeats = new Array<boolean>(rawLines.length).fill(false)
+  for (let i = 0; i < rawLines.length; i++) {
+    const sig = sigs[i]
+    if (sig.length < 3) continue
+    const count = freq.get(sig) || 0
+    repeats[i] = count >= 2
+    const raw = rawLines[i]
+    if (count >= strongThreshold) boiler[i] = true
+    else if (count >= 2 && matchesMarker(raw)) boiler[i] = true
+    else if (count >= 2 && isPureNumber(raw)) boiler[i] = true
   }
 
-  const headerFooterLines = new Set<string>()
-  for (const [line, count] of lineCount.entries()) {
-    if (count >= HEADER_FOOTER_THRESHOLD) {
-      headerFooterLines.add(line)
-    }
-  }
-
-  let headersRemoved = 0
-  const cleanedPages = pages.map((page) => {
-    const lines = page.split('\n')
-    const filtered = lines.filter((line) => {
-      const normalized = normalize(line)
-      if (headerFooterLines.has(normalized)) {
-        headersRemoved++
-        return false
+  // Passo 4: expansao do bloco (linhas repetidas vizinhas de sementes)
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false
+    for (let i = 0; i < rawLines.length; i++) {
+      if (boiler[i] || !repeats[i]) continue
+      if ((i > 0 && boiler[i - 1]) || (i < rawLines.length - 1 && boiler[i + 1])) {
+        boiler[i] = true
+        changed = true
       }
-      return true
-    })
-    return filtered.join('\n')
-  })
+    }
+    if (!changed) break
+  }
 
-  const cleanedText = cleanedPages.join('\n\n')
-  return { cleanedText, headersRemoved }
+  // Passo 5: remover linhas marcadas
+  let headersRemoved = 0
+  const kept: string[] = []
+  for (let i = 0; i < rawLines.length; i++) {
+    if (boiler[i]) {
+      headersRemoved++
+      continue
+    }
+    kept.push(rawLines[i])
+  }
+
+  return { cleanedText: kept.join('\n'), headersRemoved }
 }
 
 /**
@@ -297,8 +382,13 @@ function joinBrokenParagraphs(text: string): { paragraphs: string[]; paragraphsJ
       const prev = merged[merged.length - 1]
       const curr = lines[i]
       const isNewSentence = /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(curr) && /[.!?]$/.test(prev) && !CONTINUATION_ENDINGS.test(prev)
-      if (CONTINUATION_ENDINGS.test(prev) || /[a-z]-$/.test(prev)) {
-        merged[merged.length - 1] = prev.replace(/[a-z]-$/, '').trim() + ' ' + curr
+      if (/[a-zà-ÿ]-$/.test(prev)) {
+        // Hifen de silabacao (palavra quebrada na linha): junta SEM espaco,
+        // removendo apenas o hifen. Ex: "adminis-" + "tração" -> "administração".
+        merged[merged.length - 1] = prev.replace(/-$/, '') + curr
+        paragraphsJoined++
+      } else if (CONTINUATION_ENDINGS.test(prev)) {
+        merged[merged.length - 1] = prev + ' ' + curr
         paragraphsJoined++
       } else if (!isNewSentence) {
         merged[merged.length - 1] = prev + ' ' + curr
@@ -316,6 +406,48 @@ function joinBrokenParagraphs(text: string): { paragraphs: string[]; paragraphsJ
   }
 
   return { paragraphs: joined, paragraphsJoined }
+}
+
+/**
+ * Reune paragrafos que foram PARTIDOS por quebra de pagina.
+ *
+ * Depois de remover cabecalho/rodape, as duas metades de um paragrafo que cruzava
+ * a virada de pagina ficam como paragrafos consecutivos. Este passo as junta quando:
+ *  - a metade anterior NAO termina em pontuacao final (. ! ? …), e
+ *  - a metade seguinte comeca em minuscula OU em caractere de continuacao () , ; :),
+ *    OU a anterior termina em hifen de silabacao (juntamos removendo o hifen).
+ *
+ * Conservador de proposito: exige que a continuacao comece em minuscula, para NAO
+ * fundir titulos/frases distintas (que comecam em maiuscula). Isso reintegra o
+ * paragrafo sem misturar conteudos que sao de fato separados.
+ */
+function mergeAcrossPageBreaks(paragraphs: string[]): { paragraphs: string[]; joined: number } {
+  const result: string[] = []
+  let joined = 0
+  const endsSentence = (p: string) => /[.!?…]["'”’)\]]?\s*$/.test(p)
+  const startsContinuation = (p: string) => /^[a-zà-ÿ0-9(]/.test(p) || /^[),;:]/.test(p)
+  const hyphenBreak = (p: string) => /[a-zà-ÿ]-$/.test(p)
+
+  for (const raw of paragraphs) {
+    const curr = raw.trim()
+    if (curr.length === 0) continue
+    if (result.length === 0) {
+      result.push(curr)
+      continue
+    }
+    const prev = result[result.length - 1]
+    if (hyphenBreak(prev)) {
+      // palavra silabada na virada de pagina: "adminis-" + "tração" -> "administração"
+      result[result.length - 1] = prev.replace(/-$/, '') + curr
+      joined++
+    } else if (!endsSentence(prev) && startsContinuation(curr)) {
+      result[result.length - 1] = prev + ' ' + curr
+      joined++
+    } else {
+      result.push(curr)
+    }
+  }
+  return { paragraphs: result, joined }
 }
 
 /**
