@@ -50,7 +50,7 @@ export const api = {
     httpsCallable<any, { ok: boolean; docId: string; path: string; message: string }>(functions, 'adminUploadDocument')(data),
   adminListDocuments: () => httpsCallable<void, any[]>(functions, 'adminListDocuments')(),
   adminDeleteDocument: (docId: string) =>
-    httpsCallable<string, { ok: boolean; removedChunks: number }>(functions, 'adminDeleteDocument')(docId),
+    httpsCallable<{ docId: string }, { ok: boolean; removedChunks: number }>(functions, 'adminDeleteDocument')({ docId }),
   adminGetDocument: (docId: string) =>
     httpsCallable<{ docId: string }, any>(functions, 'adminGetDocument')({ docId }),
   adminGetDocumentTextContent: (docId: string) =>

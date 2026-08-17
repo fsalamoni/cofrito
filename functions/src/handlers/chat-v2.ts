@@ -95,8 +95,18 @@ export const chatV2 = onCall(
       }
 
       // 4. Guardrail
+      // IMPORTANTE: so' recusamos DE CARA por motivos "duros" (jailbreak, analise
+      // de caso concreto, off-topic). NAO recusamos por "sem chunks"/"baixa
+      // similaridade" — isso so' olha o retrieval por EMBEDDINGS, que pode estar
+      // vazio mesmo havendo documentos no acervo (a analise do acervo indexa
+      // classificacao/ementa/keyPoints, nem sempre embeddings). Nesses casos,
+      // seguimos para o pipeline, que faz a BUSCA POR METADADOS (corpus-search
+      // 4 niveis) e encontra/entrega os documentos — ou os mais proximos.
       const scopeCheck = checkScopeGuardrail(sanitizedText, chunks)
-      if (!scopeCheck.inScope) {
+      const reason = scopeCheck.reason || ''
+      const isHardRefusal =
+        reason === 'jailbreak' || reason === 'case_analysis' || reason.startsWith('off_topic')
+      if (!scopeCheck.inScope && isHardRefusal) {
         const messageId = await saveMessage(userId, conversationId ?? '', 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
         await saveMessage(userId, conversationId ?? '', 'user', message)
         logAnalytics('chat', { userId, intent: 'out_of_scope', sourcesCount: 0, latencyMs: Date.now() - start, guardrailTriggered: scopeCheck.reason, allowExternal })

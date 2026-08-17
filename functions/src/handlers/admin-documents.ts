@@ -344,7 +344,9 @@ export const adminDeleteDocument = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Faça login.')
     await assertAdminMaster(request.auth.uid)
-    const { docId } = request.data as { docId: string }
+    // Aceita tanto { docId } quanto a string crua (compat com bundles antigos).
+    const raw = request.data as unknown
+    const docId = typeof raw === 'string' ? raw : (raw as { docId?: string })?.docId
     if (!docId) throw new HttpsError('invalid-argument', 'docId obrigatório')
     const db = getFirestore()
     const storage = getStorage()
