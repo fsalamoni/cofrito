@@ -192,7 +192,10 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
             docId: d.id,
             title: d.title || d.fileName || d.id,
             section: 'corpus-search-4level',
-            url: d.storagePath,
+            // URL real de download (abre/baixa o PDF em nova aba). Antes usava
+            // d.storagePath (caminho no Storage), que a SPA hash-router abria como
+            // rota interna — por isso o link "abria o inicio do cofrito".
+            url: d.downloadUrl || undefined,
             type: 'internal-document',
             relevance,
             snippet,

@@ -71,6 +71,8 @@ export interface CorpusDocFull extends CorpusDocMetadata {
   textContent?: string
   textOriginal?: string
   storagePath?: string
+  /** URL publica (tokenizada) para abrir/baixar o arquivo original em nova aba. */
+  downloadUrl?: string
   /** Pontuacao de relevancia acumulada (todos os campos). >0 = correspondencia real. */
   matchScore?: number
   /**
@@ -267,16 +269,29 @@ export async function searchCorpusFourLevel(input: FourLevelSearchInput): Promis
   // CARGA FINAL: textContent apenas dos finalistas
   // ════════════════════════════════════════════════════════════════════
   const finalDocs: CorpusDocFull[] = []
+  const { getPublicDownloadUrl } = await import('../services/storage-download')
   for (const f of finalists) {
     try {
       const docSnap = await db.doc(`corpus/${f.doc.id}`).get()
       if (!docSnap.exists) continue
       const data = docSnap.data() || {}
+      const storagePath = data.storagePath as string | undefined
+      // URL de download real (abre/baixa o PDF em nova aba). Reaproveita a cache
+      // no doc; se ausente, gera pelo token do Storage e grava para reuso.
+      let downloadUrl = (data.downloadUrl as string) || ''
+      if (!downloadUrl && storagePath) {
+        const generated = await getPublicDownloadUrl(storagePath)
+        if (generated) {
+          downloadUrl = generated
+          try { await db.doc(`corpus/${f.doc.id}`).set({ downloadUrl }, { merge: true }) } catch { /* ignora */ }
+        }
+      }
       finalDocs.push({
         ...f.doc,
         textContent: data.textContent as string | undefined,
         textOriginal: ((data.textOriginal as string) || '').slice(0, 80_000),
-        storagePath: data.storagePath as string | undefined,
+        storagePath,
+        downloadUrl: downloadUrl || undefined,
         matchScore: f.score,
         isClosestMatch: usedClosestFallback,
       })
