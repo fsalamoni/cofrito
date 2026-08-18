@@ -12,7 +12,6 @@
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
-import { randomUUID } from 'node:crypto'
 import { getFirestore, FieldValue } from '../services/firestore'
 import { textToStructuredJson, serializeStructuredJson } from '../services/document-json-converter'
 import { analyzeAcervoDoc, getHeuristicAnalysis, type AcervoPipelineFlags } from '../services/acervo-analyzer'
@@ -930,25 +929,12 @@ export const adminGetDocumentDownloadUrl = onCall(
     const data = docSnap.data() || {}
     const storagePath = data.storagePath as string | undefined
     if (!storagePath) throw new HttpsError('not-found', 'Documento nao tem storagePath')
-    try {
-      const { getStorage } = await import('../services/storage')
-      const bucket = getStorage().bucket()
-      const file = bucket.file(storagePath)
-      // Usa TOKEN DE DOWNLOAD do Firebase Storage — NAO exige a permissao
-      // iam.serviceAccounts.signBlob (que a conta de servico padrao nao tem).
-      const [meta] = await file.getMetadata()
-      const existing = (meta.metadata || {}) as Record<string, string>
-      let token = existing.firebaseStorageDownloadTokens || ''
-      if (!token) {
-        token = randomUUID()
-        await file.setMetadata({ metadata: { ...existing, firebaseStorageDownloadTokens: token } })
-      }
-      const encodedPath = encodeURIComponent(storagePath)
-      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${token}`
-      return { url, expiresIn: 0 }
-    } catch (err) {
-      throw new HttpsError('internal', `Erro ao gerar URL: ${(err as Error).message}`)
-    }
+    const { getPublicDownloadUrl } = await import('../services/storage-download')
+    const url = await getPublicDownloadUrl(storagePath)
+    if (!url) throw new HttpsError('internal', 'Nao foi possivel gerar a URL de download')
+    // Cacheia no doc para o chat/pipeline reaproveitarem sem novo acesso ao Storage.
+    try { await db.doc(`corpus/${docId}`).set({ downloadUrl: url }, { merge: true }) } catch { /* ignora */ }
+    return { url, expiresIn: 0 }
   },
 )
 
