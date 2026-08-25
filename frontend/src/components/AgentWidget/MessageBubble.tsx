@@ -10,10 +10,12 @@
  *  - Avatares distintos (user / agent)
  *  - Timestamp
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { collection, query, orderBy, getDocs } from 'firebase/firestore'
+import { firestore } from '@/lib/firebase'
 import { Check, Copy, ThumbsUp, ThumbsDown, Brain, ChevronRight, CheckCircle2, XCircle, MinusCircle } from 'lucide-react'
 import type { ChatMessage, SourceRef, TrailStep } from '@/types'
 import { AgentAvatar } from './AgentAvatar'
@@ -25,8 +27,76 @@ interface MessageBubbleProps {
   onFeedback?: (helpful: boolean) => void
 }
 
+const NARR_LABELS: Record<string, string> = {
+  thinking: 'Pensando',
+  planning: 'Planejando',
+  'searching-acervo': 'Busca no acervo',
+  'searching-web': 'Busca na web externa',
+  compiling: 'Compilação das fontes',
+  answering: 'Elaborando a resposta',
+  complete: 'Concluído',
+  error: 'Erro',
+}
+
+/** Converte os eventos persistidos (agentEvents) em passos de trilha colapsável. */
+function narrativeToSteps(events: any[]): TrailStep[] {
+  return events.map((e) => {
+    const titles: string[] = Array.isArray(e.titles) ? e.titles : []
+    const detail = [e.details, titles.length ? titles.join('; ') : ''].filter(Boolean).join(' — ')
+    const status: TrailStep['status'] =
+      e.status === 'error' || e.type === 'error' ? 'error'
+      : e.status === 'skipped' ? 'skipped'
+      : e.type === 'complete' ? 'success'
+      : e.status === 'success' ? 'success'
+      : 'info'
+    return {
+      role: e.role || e.type || 'step',
+      label: NARR_LABELS[e.type as string] || e.type || 'Etapa',
+      detail: detail || undefined,
+      status,
+      durationMs: typeof e.durationMs === 'number' ? e.durationMs : undefined,
+    }
+  })
+}
+
+/**
+ * Resolve a trilha de raciocínio de uma mensagem:
+ *  1. usa `message.trail` (persistida na mensagem — vale inclusive no histórico);
+ *  2. senão, e havendo um canal (`pipelineMessageId`), lê os eventos persistidos
+ *     em agentEvents/{canal}/events — assim a trilha PERMANECE mesmo quando a
+ *     resposta falhou/estourou o tempo (o pensamento nunca "some").
+ */
+function useResolvedTrail(message: ChatMessage): TrailStep[] {
+  const [fallback, setFallback] = useState<TrailStep[]>([])
+  const hasBackendTrail = !!(message.trail && message.trail.length > 0)
+  const channel = message.pipelineMessageId
+
+  useEffect(() => {
+    if (hasBackendTrail || !channel || message.role !== 'assistant') {
+      setFallback([])
+      return
+    }
+    let alive = true
+    ;(async () => {
+      try {
+        const q = query(collection(firestore, `agentEvents/${channel}/events`), orderBy('ts', 'asc'))
+        const snap = await getDocs(q)
+        if (!alive) return
+        const evs = snap.docs.map((d) => d.data() as any).filter((e) => e.messageId === channel)
+        setFallback(narrativeToSteps(evs))
+      } catch {
+        /* sem eventos persistidos — ignora */
+      }
+    })()
+    return () => { alive = false }
+  }, [channel, hasBackendTrail, message.role])
+
+  return hasBackendTrail ? message.trail! : fallback
+}
+
 export function MessageBubble({ message, onFeedback }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+  const resolvedTrail = useResolvedTrail(message)
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(
     message.feedback ? (message.feedback.helpful ? 'up' : 'down') : null,
@@ -86,8 +156,8 @@ export function MessageBubble({ message, onFeedback }: MessageBubbleProps) {
         </div>
 
         {/* Raciocínio + ações do orquestrador (colapsado, antes da resposta) */}
-        {message.trail && message.trail.length > 0 && (
-          <ThinkingTrail trail={message.trail} />
+        {resolvedTrail.length > 0 && (
+          <ThinkingTrail trail={resolvedTrail} />
         )}
 
         <div style={agentBubbleStyle}>

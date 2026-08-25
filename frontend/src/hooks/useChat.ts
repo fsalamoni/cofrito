@@ -107,6 +107,8 @@ export function useChat() {
           content: response.reply,
           sources: response.sources,
           trail: response.trail,
+          // Canal dos eventos persistidos (fallback da trilha, se `trail` vier vazio).
+          pipelineMessageId: response.pipelineMessageId || liveId,
           intent: response.intent,
           latencyMs: response.latencyMs,
           tokens: response.usage,
@@ -133,6 +135,20 @@ export function useChat() {
           pushToast(err?.message || 'Erro ao enviar mensagem', 'error')
         }
         console.error('Chat error:', err)
+        // NUNCA deixa o chat vazio: adiciona uma mensagem do assistente com o que
+        // aconteceu + o canal da trilha (o usuário vê o que o Cofrito chegou a fazer).
+        const isTimeout = code === 'functions/deadline-exceeded' || code === 'deadline-exceeded'
+        const errText = isTimeout
+          ? 'O processamento demorou mais que o esperado. Veja abaixo o que o Cofrito chegou a fazer e, se quiser, refaça a pergunta (de preferência mais específica).'
+          : (err?.message || 'Não consegui concluir o processamento agora. Tente novamente.')
+        addMessage({
+          id: `err-${Date.now()}`,
+          conversationId: conversationId || '',
+          role: 'assistant',
+          content: `⚠️ ${errText}`,
+          pipelineMessageId: liveId,
+          createdAt: new Date().toISOString(),
+        })
         setLivePipelineMessageId(null)
         setLiveEventChannel(null)
       } finally {
