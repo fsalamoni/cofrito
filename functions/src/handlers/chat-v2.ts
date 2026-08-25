@@ -258,6 +258,7 @@ export const chatV2 = onCall(
       let agentRunsCount = 0
       let iterations = 0
       let criticScore: number | undefined
+      let trailSteps: import('../services/history').TrailStep[] = []
 
       // Timeline em tempo real: usa o canal gerado pelo CLIENTE (clientEventId),
       // que já se inscreveu ANTES de enviar. Assim os eventos aparecem ao vivo,
@@ -294,6 +295,13 @@ export const chatV2 = onCall(
         agentRunsCount = result.agentRuns.length
         iterations = result.iterations
         criticScore = result.criticScore
+        // Passos de raciocinio/acoes do orquestrador (para a secao colapsavel).
+        try {
+          const { buildTrailSteps } = await import('../agents/trail-steps')
+          trailSteps = buildTrailSteps(result.orchestratorPlan, result.agentRuns)
+        } catch (tsErr) {
+          logger.warn('buildTrailSteps falhou', { err: (tsErr as Error)?.message })
+        }
         // Estimar tokens
         tokensUsed = {
           input: Math.ceil(message.length / 4),
@@ -304,7 +312,13 @@ export const chatV2 = onCall(
       } catch (err: any) {
         logger.error('pipeline falhou', { err: err?.message })
         pipelineError = err?.message ?? 'desconhecido'
-        content = `⚠️ Erro no pipeline de agentes: ${pipelineError}. Tente novamente.`
+        content = `⚠️ Não consegui concluir o processamento agora (${pipelineError}). Por favor, tente novamente ou reformule a pergunta.`
+      }
+
+      // GARANTIA DE RESPOSTA FINAL: nunca devolve conteudo vazio.
+      if (!content || !content.trim()) {
+        content = 'Não consegui elaborar uma resposta para este pedido. Tente reformular a pergunta ou refazê-la em instantes.'
+        if (!pipelineError) pipelineError = 'resposta vazia do pipeline'
       }
 
       // 9. Persistência (try/catch para NÃO matar a request se Firestore falhar)
@@ -326,6 +340,15 @@ export const chatV2 = onCall(
           content,
           sources,
           tokensUsed.total,
+          {
+            trail: trailSteps,
+            intent: context?.intent ?? undefined,
+            latencyMs: Date.now() - start,
+            agentRuns: agentRunsCount,
+            iterations,
+            criticScore,
+            pipelineError,
+          },
         )
         newConvId = saved.conversationId
         messageId = saved.messageId
@@ -347,6 +370,7 @@ export const chatV2 = onCall(
         pipelineMessageId,
         reply: content,
         sources,
+        trail: trailSteps,
         intent: context?.intent || 'unknown',
         inScope: true,
         allowExternal,

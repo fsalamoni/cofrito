@@ -287,7 +287,8 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
   emit({ type: 'sources_found', count: compiledSources.length, ts: new Date().toISOString(), source: 'compiled', titles: compiledSources.slice(0, 8).map((s) => s.title) })
 
   // 5) LOOP: LEGAL-WRITER → CRITIC ─────────────────────────────────────────
-  let finalAnswer: string = buildFallbackMessage(internalSources.length > 0, webSources.length > 0, allowExternal)
+  const initialFallback = buildFallbackMessage(internalSources.length > 0, webSources.length > 0, allowExternal)
+  let finalAnswer: string = initialFallback
   let iterations = 0
   let criticScore: number | undefined
   let lastDraft: string | null = null
@@ -346,6 +347,13 @@ export async function runAgentPipeline(input: PipelineInput): Promise<PipelineRe
       runs.push(makeSkippedRun('critic', 'not enabled at this effort level'))
       break
     }
+  }
+
+  // GARANTIA: se ha' documentos mas a resposta ficou no fallback generico (ex.:
+  // legal-writer estourou o timeout do agente), entrega ao menos os documentos
+  // encontrados (nunca deixa o usuario sem a resposta final util).
+  if (compiledSources.length > 0 && finalAnswer === initialFallback) {
+    finalAnswer = buildDeliveryAnswer(compiledSources, plan, allowExternal, compiled?.hasEnoughMaterial ?? true)
   }
 
   // Watchdog: se passou do deadline, finaliza com o que tem

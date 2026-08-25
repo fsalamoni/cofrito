@@ -106,6 +106,7 @@ export function useChat() {
           role: 'assistant',
           content: response.reply,
           sources: response.sources,
+          trail: response.trail,
           intent: response.intent,
           latencyMs: response.latencyMs,
           tokens: response.usage,
