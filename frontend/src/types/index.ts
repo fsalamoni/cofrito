@@ -37,6 +37,15 @@ export interface SourceRef {
   url?: string
 }
 
+/** Passo do "raciocínio e ações" do orquestrador (seção colapsável). */
+export interface TrailStep {
+  role: string
+  label: string
+  detail?: string
+  status?: 'success' | 'error' | 'skipped' | 'info'
+  durationMs?: number
+}
+
 export interface ChatMessage {
   id: string
   conversationId: string
@@ -51,6 +60,8 @@ export interface ChatMessage {
   agentRuns?: number
   iterations?: number
   criticScore?: number
+  /** Raciocínio + ações do orquestrador, para a seção colapsável antes da resposta. */
+  trail?: TrailStep[]
 
   /** ID do messageId "live" para ouvir eventos do orquestrador em tempo real (Fase 2f) */
   pipelineMessageId?: string
@@ -94,6 +105,8 @@ export interface ChatResponse {
   messageId: string
   reply: string
   sources: SourceRef[]
+  /** Raciocínio + ações do orquestrador (seção colapsável). */
+  trail?: TrailStep[]
   intent: string
   inScope: boolean
   feedbackToken: string

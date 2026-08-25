@@ -4,6 +4,26 @@
 
 import { getFirestore, Timestamp, FieldValue } from './firestore'
 
+/** Passo do "raciocínio/ações" do orquestrador, persistido junto da mensagem. */
+export interface TrailStep {
+  role: string
+  label: string
+  detail?: string
+  status?: 'success' | 'error' | 'skipped' | 'info'
+  durationMs?: number
+}
+
+/** Campos extras persistidos na mensagem do assistente (raciocínio + métricas). */
+export interface AssistantMessageExtra {
+  trail?: TrailStep[]
+  intent?: string
+  latencyMs?: number
+  agentRuns?: number
+  iterations?: number
+  criticScore?: number
+  pipelineError?: string | null
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -11,6 +31,7 @@ export interface ChatMessage {
   tokens?: { prompt: number; completion: number; total: number }
   latencyMs?: number
   intent?: string
+  trail?: TrailStep[]
 }
 
 export interface Conversation {
@@ -30,6 +51,7 @@ export async function saveMessage(
   content: string,
   sources: ChatMessage['sources'] = [],
   tokensUsed = 0,
+  extra?: AssistantMessageExtra,
 ): Promise<{ conversationId: string; messageId: string }> {
   const db = getFirestore()
   const now = Timestamp.now()
@@ -51,11 +73,19 @@ export async function saveMessage(
   const messageRef = db
     .collection(`users/${userId}/conversations/${convId}/messages`)
     .doc()
+  // ignoreUndefinedProperties esta' ativo — campos undefined sao simplesmente omitidos.
   await messageRef.set({
     role,
     content,
     sources,
     tokens: tokensUsed ? { prompt: 0, completion: 0, total: tokensUsed } : null,
+    trail: extra?.trail && extra.trail.length > 0 ? extra.trail : undefined,
+    intent: extra?.intent,
+    latencyMs: extra?.latencyMs,
+    agentRuns: extra?.agentRuns,
+    iterations: extra?.iterations,
+    criticScore: extra?.criticScore,
+    pipelineError: extra?.pipelineError || undefined,
     createdAt: now,
   })
 
