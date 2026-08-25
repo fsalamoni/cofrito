@@ -15,8 +15,11 @@ import type {
 } from '@/types'
 
 export const api = {
+  // timeout do cliente = 290s (a chatV2 roda ate' 300s). O DEFAULT do Firebase e'
+  // 70s — pipelines com analise juridica passam disso e o cliente abortava
+  // (deadline-exceeded) ANTES da resposta, deixando o chat vazio.
   chat: (req: ChatRequest) =>
-    httpsCallable<ChatRequest, ChatResponse>(functions, 'chatV2')(req),
+    httpsCallable<ChatRequest, ChatResponse>(functions, 'chatV2', { timeout: 290_000 })(req),
 
   openConsultaFormal: (req: ConsultaRequest) =>
     httpsCallable<ConsultaRequest, ConsultaResponse>(functions, 'openConsultaFormal')(req),
