@@ -115,6 +115,12 @@ export function ConversationHistory({ onClose: _onClose }: Props) {
           role: data.role,
           content: data.content,
           sources: data.sources,
+          // Reabre a conversa com o histórico COMPLETO: perguntas, pensamentos e respostas.
+          trail: data.trail,
+          intent: data.intent,
+          agentRuns: data.agentRuns,
+          iterations: data.iterations,
+          criticScore: data.criticScore,
           createdAt: data.createdAt?.toDate?.()?.toISOString() ?? new Date().toISOString(),
         })
       })

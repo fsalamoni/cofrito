@@ -14,8 +14,8 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { Check, Copy, ThumbsUp, ThumbsDown } from 'lucide-react'
-import type { ChatMessage, SourceRef } from '@/types'
+import { Check, Copy, ThumbsUp, ThumbsDown, Brain, ChevronRight, CheckCircle2, XCircle, MinusCircle } from 'lucide-react'
+import type { ChatMessage, SourceRef, TrailStep } from '@/types'
 import { AgentAvatar } from './AgentAvatar'
 import { useAuthStore } from '@/stores/authStore'
 import { AgentRunIndicatorCompact } from './AgentRunIndicator'
@@ -84,6 +84,12 @@ export function MessageBubble({ message, onFeedback }: MessageBubbleProps) {
           <span style={agentNameStyle}>Cofrito</span>
           <span style={agentTimeStyle}>{time}</span>
         </div>
+
+        {/* Raciocínio + ações do orquestrador (colapsado, antes da resposta) */}
+        {message.trail && message.trail.length > 0 && (
+          <ThinkingTrail trail={message.trail} />
+        )}
+
         <div style={agentBubbleStyle}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -177,6 +183,52 @@ export function MessageBubble({ message, onFeedback }: MessageBubbleProps) {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * ThinkingTrail — seção COLAPSADA (nativa <details>) com o raciocínio e as ações
+ * que o orquestrador executou antes da resposta final. Fica MINIMIZADA por padrão;
+ * o usuário expande se quiser ver o passo a passo.
+ */
+function ThinkingTrail({ trail }: { trail: TrailStep[] }) {
+  const n = trail.length
+  return (
+    <details style={trailDetailsStyle}>
+      <summary style={trailSummaryStyle}>
+        <Brain size={13} color="#6366f1" />
+        <span style={{ flex: 1 }}>Ver raciocínio do Cofrito</span>
+        <span style={trailCountStyle}>{n} {n === 1 ? 'etapa' : 'etapas'}</span>
+        <ChevronRight size={14} className="trail-chevron" />
+      </summary>
+      <div style={trailBodyStyle}>
+        {trail.map((step, i) => {
+          const color =
+            step.status === 'error' ? '#dc2626'
+            : step.status === 'skipped' ? '#9ca3af'
+            : step.status === 'success' ? '#16a34a'
+            : '#6366f1'
+          const Icon =
+            step.status === 'error' ? XCircle
+            : step.status === 'skipped' ? MinusCircle
+            : CheckCircle2
+          return (
+            <div key={i} style={trailStepStyle}>
+              <Icon size={13} color={color} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={trailStepLabelStyle}>
+                  {step.label}
+                  {typeof step.durationMs === 'number' && step.durationMs > 0 && (
+                    <span style={trailDurationStyle}> · {(step.durationMs / 1000).toFixed(1)}s</span>
+                  )}
+                </div>
+                {step.detail && <div style={trailStepDetailStyle}>{step.detail}</div>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </details>
   )
 }
 
@@ -404,6 +456,72 @@ const actionBtnStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   color: '#9ca3af',
+}
+
+// ── Thinking trail (colapsável) ────────────────────────────────────────────
+
+const trailDetailsStyle: React.CSSProperties = {
+  marginBottom: 8,
+  border: '1px solid #e5e7eb',
+  borderRadius: 8,
+  background: '#fafafe',
+  overflow: 'hidden',
+}
+
+const trailSummaryStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 500,
+  color: '#4b5563',
+  cursor: 'pointer',
+  userSelect: 'none',
+  listStyle: 'none',
+}
+
+const trailCountStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#6b7280',
+  background: '#eef2ff',
+  padding: '1px 7px',
+  borderRadius: 10,
+}
+
+const trailBodyStyle: React.CSSProperties = {
+  padding: '4px 10px 10px',
+  borderTop: '1px solid #f1f5f9',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
+
+const trailStepStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'flex-start',
+}
+
+const trailStepLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#0f172a',
+}
+
+const trailDurationStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 400,
+  color: '#9ca3af',
+}
+
+const trailStepDetailStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#6b7280',
+  marginTop: 1,
+  lineHeight: 1.4,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
 }
 
 

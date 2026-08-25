@@ -83,3 +83,9 @@
 .pulse {
   animation: cofrito-pulse 1.5s ease-in-out infinite;
 }
+
+/* Thinking trail (seção colapsável de raciocínio no chat) */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+.trail-chevron { transition: transform 0.15s ease; color: #9ca3af; }
+details[open] > summary .trail-chevron { transform: rotate(90deg); }
