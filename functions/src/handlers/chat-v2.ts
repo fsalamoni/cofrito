@@ -107,8 +107,9 @@ export const chatV2 = onCall(
       const isHardRefusal =
         reason === 'jailbreak' || reason === 'case_analysis' || reason.startsWith('off_topic')
       if (!scopeCheck.inScope && isHardRefusal) {
-        const messageId = await saveMessage(userId, conversationId ?? '', 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
-        await saveMessage(userId, conversationId ?? '', 'user', message)
+        // Pergunta primeiro (cria/usa a conversa), depois a recusa na MESMA conversa.
+        const userSaved = await saveMessage(userId, conversationId || undefined, 'user', message)
+        const messageId = await saveMessage(userId, userSaved.conversationId, 'assistant', scopeCheck.refusalMessage ?? 'Fora do escopo.', [], 0)
         logAnalytics('chat', { userId, intent: 'out_of_scope', sourcesCount: 0, latencyMs: Date.now() - start, guardrailTriggered: scopeCheck.reason, allowExternal })
         return {
           conversationId: messageId.conversationId,
@@ -332,10 +333,15 @@ export const chatV2 = onCall(
         relevance: c.similarity,
       }))
       try {
-        await saveMessage(userId, conversationId ?? '', 'user', message)
+        // 1) Salva a PERGUNTA — se nao ha conversa, ESTA cria a conversa (uma so).
+        const userSaved = await saveMessage(userId, conversationId || undefined, 'user', message)
+        // 2) Salva a RESPOSTA na MESMA conversa (usa o id retornado pela pergunta).
+        //    BUG corrigido: antes ambos recebiam '' e o saveMessage criava DUAS
+        //    conversas distintas (uma por mensagem) — por isso o historico ficava
+        //    fragmentado, com "1 mensagem" cada. Agora tudo do mesmo chat fica junto.
         const saved = await saveMessage(
           userId,
-          conversationId ?? '',
+          userSaved.conversationId,
           'assistant',
           content,
           sources,
